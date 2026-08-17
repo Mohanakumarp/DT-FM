@@ -19,6 +19,8 @@ __pycache__/
 *.backup
 *.save
 *.bak
+dtfm-broken-backup.yml
+dtfm-pip-backup.txt
 
 # Datasets (QQP is ~100MB extracted; download with scripts/download_data.sh)
 task_datasets/data/QQP/

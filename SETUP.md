@@ -15,9 +15,13 @@ Tested combination:
 |---|---|
 | Python | 3.8 |
 | PyTorch | 1.9.0+cu111 |
-| CUDA runtime | 11.1 (comes with the PyTorch wheel) |
-| CuPy | 12.3.0 |
-| NCCL | 2.8.4 (`version 2804`) |
+| CUDA runtime | 11.8 (classic `cudatoolkit=11.8` from defaults) |
+| CuPy | 12.3.0 (`cupy-cuda11x`) |
+| NCCL | installed by `python -m cupyx.tools.install_library --library nccl --cuda 11.1` |
+
+The driver can be much newer than 11.8 (for example 595.x / CUDA 13.2). Do not upgrade PyTorch or CuPy to match the driver.
+
+**Do not** run `conda install -c nvidia cuda-toolkit=11.8`. That hyphenated metapackage does not pin `cuda-version`, and the solver will pull CUDA 12/13 libraries (`libcublas.so.13`, `cuda-nvcc` 13.x, …). CuPy then fails with `libcudart.so.11.0` / `libcublas.so.11` missing. The correct package name is the classic **`cudatoolkit=11.8`** (no hyphen) from `defaults`.
 
 ## One-command install
 
@@ -52,7 +56,7 @@ conda activate dtfm
 source scripts/env.sh
 ```
 
-`scripts/env.sh` sets `LD_LIBRARY_PATH` so CuPy can find NCCL and the CUDA runtime.
+`scripts/env.sh` sets `LD_LIBRARY_PATH` so CuPy can find NCCL and the CUDA 11.8 runtime. It also `LD_PRELOAD`s conda's `libcudart.so.11.0`. That is required because PyTorch 1.9.0+cu111 ships a CUDA 11.1 `libcudart` with the same SONAME; importing torch first would otherwise shadow the 11.8 library and CuPy 12.3 fails with `undefined symbol: cudaMemPoolCreate`.
 
 ## Smoke tests
 
@@ -68,7 +72,7 @@ Two processes on the **same** GPU. Rank 0 is the first pipeline stage and spawns
 bash scripts/run_2rank_1gpu_smoke.sh
 ```
 
-On WSL the 2-rank script uses `--tensor-comm gloo`. That is a local stand-in because NCCL 2.8.4 cannot read WSL PCI sysfs (`/sys/class/pci_bus/...`). On native multi-GPU Linux, run:
+On a **single GPU** (this laptop, or WSL) keep `--tensor-comm gloo`. NCCL 2.16 refuses two ranks on the same CUDA device (`Duplicate GPU detected`) and then aborts. On native **multi-GPU** Linux, run:
 
 ```bash
 TENSOR_COMM=nccl bash scripts/run_2rank_1gpu_smoke.sh
@@ -123,7 +127,7 @@ Known WSL limit: CuPy NCCL communicator init can fail even after `libnccl.so.2` 
 ## Manual install (if you do not want the script)
 
 ```bash
-conda create -y -n dtfm python=3.8
+conda create -y -n dtfm python=3.8 cudatoolkit=11.8
 conda activate dtfm
 python -m pip install --upgrade pip
 python -m pip install numpy==1.24.4 six
@@ -134,3 +138,5 @@ ln -sfn "$CONDA_PREFIX/lib/libnvrtc.so.11.1" "$CONDA_PREFIX/lib/libnvrtc.so.11.0
 bash scripts/download_data.sh
 source scripts/env.sh
 ```
+
+The PyTorch `+cu111` wheel does **not** ship `libcublas.so.11` (it only has a hashed `libcudart-*.so.11.0`). CuPy needs the unmangled CUDA 11 SONAMEs from `cudatoolkit=11.8`.
