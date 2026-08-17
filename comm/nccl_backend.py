@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import cupy
+import cupy.cuda.nccl
 import torch.distributed as dist
 from typing import List
 

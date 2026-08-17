@@ -22,6 +22,11 @@ def add_torch_distributed_arguments(parser):
                         help='world-size (default: 1)')
     parser.add_argument('--rank', type=int, default=0, metavar='N',
                         help='rank of the node')
+    parser.add_argument('--spawn-local-ranks', default=False,
+                        type=lambda x: (str(x).lower() == 'true'),
+                        help='If True, rank 0 starts ranks 1..world-size-1 as local processes.')
+    parser.add_argument('--tensor-comm', type=str, default='auto', metavar='S',
+                        help='pipeline tensor transport: auto, nccl, or gloo')
 
 
 def add_qqp_task_arguments(parser):
@@ -29,6 +34,8 @@ def add_qqp_task_arguments(parser):
                         help='path to the training data')
     parser.add_argument('--valid-data', nargs='+', default=['./task_datasets/data/QQP/test.tsv'], metavar='S',
                         help='path to the training data')
+    parser.add_argument('--test-data', nargs='+', default=['./task_datasets/data/QQP/test.tsv'], metavar='S',
+                        help='path to the test data')
     parser.add_argument('--tokenizer-type', type=str, default='BertWordPieceLowerCase', metavar='S',
                         help='which tokenizer to use.')
     parser.add_argument('--vocab-file', type=str, default='./task_datasets/data/bert-large-cased-vocab.txt', metavar='S',

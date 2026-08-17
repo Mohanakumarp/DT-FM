@@ -1,4 +1,7 @@
 import argparse
+import os
+import sys
+import subprocess
 import torch.autograd.profiler as profiler
 from task_datasets.qqp import get_glue_qqp_train_data_loader
 from task_datasets.tokenizer import build_tokenizer
@@ -6,6 +9,67 @@ from pipeline_parallel.dist_pp_utils import get_pp_module
 from utils.dist_args_utils import *
 from utils.dist_train_utils import *
 from comm.comm_utils import *
+
+
+def _local_rank_argv(rank):
+    argv = [sys.executable, '-u', os.path.abspath(sys.argv[0])]
+    args = sys.argv[1:]
+    i = 0
+    saw_rank = False
+    while i < len(args):
+        tok = args[i]
+        if tok == '--rank':
+            argv.extend(['--rank', str(rank)])
+            i += 2
+            saw_rank = True
+            continue
+        if tok.startswith('--rank='):
+            argv.append('--rank=' + str(rank))
+            i += 1
+            saw_rank = True
+            continue
+        if tok == '--spawn-local-ranks':
+            if i + 1 < len(args) and not args[i + 1].startswith('-'):
+                i += 2
+            else:
+                i += 1
+            continue
+        if tok.startswith('--spawn-local-ranks='):
+            i += 1
+            continue
+        argv.append(tok)
+        i += 1
+    if not saw_rank:
+        argv.extend(['--rank', str(rank)])
+    return argv
+
+
+def spawn_local_ranks(args):
+    if not args.spawn_local_ranks:
+        return []
+    if args.rank != 0:
+        return []
+    if args.world_size <= 1:
+        return []
+
+    children = []
+    for rank in range(1, args.world_size):
+        cmd = _local_rank_argv(rank)
+        print("Spawning local rank", rank, ":", " ".join(cmd))
+        env = os.environ.copy()
+        env['PYTHONUNBUFFERED'] = '1'
+        children.append(subprocess.Popen(cmd, env=env))
+    return children
+
+
+def wait_local_ranks(children):
+    rc = 0
+    for proc in children:
+        child_rc = proc.wait()
+        print("Local child pid", proc.pid, "exited with", child_rc)
+        if child_rc != 0:
+            rc = child_rc
+    return rc
 
 
 def main():
@@ -24,6 +88,24 @@ def main():
     parser.add_argument('--trace-postfix', type=str, default='default', metavar='S',
                         help='postfix of the tracing file name.')
     args = parser.parse_args()
+    print("==== Process rank", args.rank, "pid", os.getpid(),
+          "world_size", args.world_size,
+          "pipeline_group_size", args.pipeline_group_size)
+    children = spawn_local_ranks(args)
+    try:
+        run_training(args)
+    except Exception:
+        for proc in children:
+            if proc.poll() is None:
+                proc.terminate()
+        raise
+    else:
+        child_rc = wait_local_ranks(children)
+        if child_rc != 0:
+            raise SystemExit(child_rc)
+
+
+def run_training(args):
     torch.manual_seed(args.seed)
     if args.use_cuda:
         assert (torch.cuda.is_available())

@@ -80,3 +80,30 @@ class GPTStageLast(GPTStageBase):
             assert target is not None
             x = self.model(x)
             return self.task_layer(x, target)
+
+
+class GPTStageFull(GPTStageBase):
+    """Single-stage model: embeddings + transformer layers + task head.
+
+    Used only when pipeline_group_size == 1 (first rank is also last).
+    Multi-stage runs continue to use GPTStageFirst / Middle / Last.
+    """
+
+    def __init__(self, args, vocab_size, num_classes, device):
+        super(GPTStageFull, self).__init__(args, vocab_size, num_classes)
+        self.device = device
+        module_list = [self._create_first_layer()]
+        for _ in range(self._num_layers):
+            module_list.append(self._create_transformer_layer())
+        self.model = nn.Sequential(*module_list).to(device)
+        self.task_layer = self._create_last_layer().to(device)
+
+    def forward(self, x, target=None):
+        if self.task == 'SeqClassification':
+            x = self.model(x.to(self.device))
+            out = self.task_layer(x)
+            return out.cpu() if self._to_cpu else out
+        elif self.task == 'Seq2SeqClassification':
+            assert target is not None
+            x = self.model(x.to(self.device))
+            return self.task_layer(x, target)

@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Local editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local leftovers from debugging (do not push)
+*.orig
+*.backup
+*.save
+*.bak
+
+# Datasets (QQP is ~100MB extracted; download with scripts/download_data.sh)
+task_datasets/data/QQP/
+*.zip
+
+# Keep the vocab if someone adds it, but ignore other bulk data
+task_datasets/data/*.tsv
+
+# Run artifacts
+logs/*.log
+logs/*.txt
+!logs/readme.txt
+trace_json/*.json
+!trace_json/doc.txt
+*.pt
+*.pth
+*.onnx
+core
