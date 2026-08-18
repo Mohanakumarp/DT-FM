@@ -47,6 +47,7 @@ class GpipeAsync:
         self.num_classes = num_classes
 
         self.enable_tidy_profiling = (args.profiling == 'tidy_profiling')
+        self.last_loss = None
         self.device = device
         self.torch_comp_stream = torch.cuda.default_stream(device=device)
         self.torch_recv_stream = torch.cuda.Stream(device=device, priority=-1)
@@ -289,6 +290,7 @@ class GpipeAsync:
                                                                  target=target_as_micro_batches[i])
                         print("Rank {} micro-batch {} SeqClassification loss: {:3.4f} target: {}".format(
                             self.global_rank, i, loss.item(), target_as_micro_batches[i].detach().cpu().tolist()))
+                        self.last_loss = float(loss.item())
                         loss.backward()
                     self.torch_comp_stream.record_event(self.backward_comp_ready_events[i])
                 if self.pre_node_rank >= 0:
@@ -387,7 +389,9 @@ class GpipeAsync:
             json.dump(self.profiling_log, outfile)
 
     def sgd_iter(self, input_=None, target=None):
+        t_bar0 = time.time()
         self.comm.barrier()
+        barrier_s = time.time() - t_bar0
         start_time = time.time()
         if self.enable_tidy_profiling:
             torch.cuda.synchronize()
@@ -396,29 +400,41 @@ class GpipeAsync:
         self.zero_input_grad()
         self.optimizer.zero_grad(set_to_none=False)
 
+        forward_s = 0.0
+        backward_s = 0.0
         for step in range(self.gradient_accumulate_step):
+            t_fwd = time.time()
             outputs = self.forward_stage(input_, target)
             forward_time = time.time()
-            if step == 0:
-                forward_slot = forward_time-start_time
-            else:
-                forward_slot = forward_time-backward_time
+            forward_slot = forward_time - t_fwd
+            forward_s += forward_slot
             print("Rank {} node forward pass {}/{} takes {:3.2f}s"
                   .format(self.global_rank, step, self.gradient_accumulate_step, forward_slot))
+            t_bar = time.time()
             self.comm.barrier()  # This is an educated guess that such barrier would make it fair TC (probably required)
+            barrier_s += time.time() - t_bar
             self.backward_stage(outputs, target)
             backward_time = time.time()
+            backward_slot = backward_time - forward_time
+            backward_s += backward_slot
             print("Rank {} node backward pass {}/{} takes {:3.2f}s"
-                  .format(self.global_rank, step, self.gradient_accumulate_step, backward_time-forward_time))
+                  .format(self.global_rank, step, self.gradient_accumulate_step, backward_slot))
         optimizer_time = time.time()
         self.optimizer_step()
         torch.cuda.synchronize()
+        t_bar = time.time()
         self.comm.barrier()
+        barrier_s += time.time() - t_bar
         end_time = time.time()
-        print("Rank {} node optimizer step takes {:3.2f}s".format(self.global_rank, end_time - optimizer_time))
+        optim_s = end_time - optimizer_time
+        print("Rank {} node optimizer step takes {:3.2f}s".format(self.global_rank, optim_s))
         iter_time = end_time - start_time
         print("Rank {} node whole iteration takes {:3.2f}s".format(self.global_rank, iter_time))
         print("-------------------------------------------")
-        # torch.cuda.empty_cache()
-        # print(torch.cuda.memory_summary())
-        return iter_time
+        return {
+            'iter_s': iter_time,
+            'forward_s': forward_s,
+            'backward_s': backward_s,
+            'optim_s': optim_s,
+            'barrier_s': barrier_s,
+        }

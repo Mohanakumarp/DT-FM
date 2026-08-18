@@ -32,11 +32,26 @@ DP_SIZE="${DP_SIZE:-1}"
 PORT="${PORT:-9000}"
 LOG_PORT="${LOG_PORT:-9100}"
 ITERS="${ITERS:-70}"
+EPOCHS="${EPOCHS:-0}"
+STEPS_PER_EPOCH="${STEPS_PER_EPOCH:-0}"
+PROFILE="${PROFILE:-tiny}"
 TENSOR_COMM="${TENSOR_COMM:-gloo}"
 SEQ="${SEQ:-64}"
 EMBED="${EMBED:-128}"
 LAYERS="${LAYERS:-2}"
 HEADS="${HEADS:-4}"
+
+# BERT-base-scale QQP fine-tune: 12 transformer layers split 4+4+4 across 3 ranks.
+# Not HuggingFace weights — same GPipe stack, BERT vocab, BERT-base width.
+if [[ "${PROFILE}" == "bert" ]]; then
+  SEQ=128
+  EMBED=768
+  LAYERS=4
+  HEADS=12
+  if [[ "${EPOCHS}" -eq 0 ]]; then EPOCHS=2; fi
+  if [[ "${STEPS_PER_EPOCH}" -eq 0 ]]; then STEPS_PER_EPOCH=50; fi
+  ITERS=$((EPOCHS * STEPS_PER_EPOCH))
+fi
 
 if [[ -z "${MASTER_IP:-}" ]]; then
   if command -v tailscale >/dev/null 2>&1; then
@@ -74,11 +89,11 @@ if [[ "${RANK}" == "0" ]]; then
   echo "[run_rank] log hub on ${MASTER_IP}:${LOG_PORT}  (live: tail -F logs/all_ranks.log)"
   echo "[run_rank] start the other laptops with:"
   for ((r=1; r<WORLD_SIZE; r++)); do
-    echo "  RANK=${r} MASTER_IP=${MASTER_IP} WORLD_SIZE=${WORLD_SIZE} ITERS=${ITERS} bash scripts/run_rank.sh"
+    echo "  RANK=${r} MASTER_IP=${MASTER_IP} WORLD_SIZE=${WORLD_SIZE} PROFILE=${PROFILE} EPOCHS=${EPOCHS} STEPS_PER_EPOCH=${STEPS_PER_EPOCH} ITERS=${ITERS} bash scripts/run_rank.sh"
   done
 fi
 
-echo "[run_rank] rank=${RANK}/${WORLD_SIZE} master=${MASTER_IP}:${PORT} iters=${ITERS} iface=${GLOO_SOCKET_IFNAME}"
+echo "[run_rank] rank=${RANK}/${WORLD_SIZE} master=${MASTER_IP}:${PORT} profile=${PROFILE} epochs=${EPOCHS} spe=${STEPS_PER_EPOCH} iters=${ITERS} iface=${GLOO_SOCKET_IFNAME}"
 
 python -u dist_runner.py \
   --use-cuda true \
@@ -98,6 +113,9 @@ python -u dist_runner.py \
   --batch-size 1 \
   --micro-batch-size 1 \
   --num-iters "${ITERS}" \
+  --num-epochs "${EPOCHS}" \
+  --steps-per-epoch "${STEPS_PER_EPOCH}" \
+  --metrics-dir ./logs \
   --train-data ./task_datasets/data/QQP/train.tsv \
   --valid-data ./task_datasets/data/QQP/dev.tsv \
   --test-data ./task_datasets/data/QQP/test.tsv \

@@ -210,5 +210,13 @@ class NCCLCommunicator:
 
 
 def default_init(args):
+    import os
+    # Tailscale has IPv4 (100.x) and IPv6 (fd7a:...). Mixing those, or mixing
+    # tailscale0 with env.sh's default lo (::1), makes Gloo throw
+    # "address family mismatch". Pin the iface before ProcessGroupGloo starts.
+    if os.path.isdir('/sys/class/net/tailscale0'):
+        os.environ['GLOO_SOCKET_IFNAME'] = 'tailscale0'
+    print('[gloo] init', args.dist_url, 'rank', args.rank, '/', args.world_size,
+          'iface', os.environ.get('GLOO_SOCKET_IFNAME'))
     dist.init_process_group(backend='gloo', init_method=args.dist_url, world_size=args.world_size, rank=args.rank)
 

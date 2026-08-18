@@ -67,7 +67,14 @@ def add_training_hyper_parameter_arguments(parser):
     parser.add_argument('--lr', type=float, default=0.01, metavar='N',
                         help='-')
     parser.add_argument('--num-iters', type=int, default=5, metavar='N',
-                        help='-')
+                        help='Step budget when --num-epochs is 0.')
+    parser.add_argument('--num-epochs', type=int, default=0, metavar='N',
+                        help='If >0, train this many epochs (see --steps-per-epoch).')
+    parser.add_argument('--steps-per-epoch', type=int, default=0, metavar='N',
+                        help='Cap steps in each epoch. Full QQP is ~364k samples; '
+                             'set this so three 6GB laptops finish in minutes.')
+    parser.add_argument('--metrics-dir', type=str, default='./logs',
+                        help='Directory for metrics JSON.')
 
 
 def add_mixed_precision_arguments(parser):

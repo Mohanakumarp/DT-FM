@@ -1,6 +1,16 @@
 from comm.comm_utils import *
 
 
+def total_train_steps(args):
+    epochs = int(getattr(args, 'num_epochs', 0) or 0)
+    spe = int(getattr(args, 'steps_per_epoch', 0) or 0)
+    if epochs > 0:
+        if spe <= 0:
+            raise ValueError('--num-epochs requires --steps-per-epoch (QQP is ~364k samples/epoch)')
+        return epochs * spe
+    return int(args.num_iters)
+
+
 def _batch_labels(args, data, device):
     if args.task == 'SeqClassification':
         return data['label'].to(device)
@@ -11,58 +21,105 @@ def _batch_labels(args, data, device):
         assert False
 
 
-def _print_finished_iters(args, total_time, last_iter_time):
-    if args.num_iters > 1:
-        averaged_time = total_time / (args.num_iters - 1)
-        print("Finished running ", args.num_iters,
+def _iter_seconds(stats):
+    if isinstance(stats, dict):
+        return float(stats.get('iter_s', 0.0))
+    return float(stats)
+
+
+def _print_finished_iters(args, total_time, last_iter_time, completed):
+    if completed > 1:
+        averaged_time = total_time / (completed - 1)
+        print("Finished running ", completed,
               " iterations, averaged (exclude the first iter) run time:", averaged_time)
     else:
-        print("Finished running ", args.num_iters,
+        print("Finished running ", completed,
               " iterations, run time:", last_iter_time)
 
 
-def distributed_train_foo_iter(args, pipeline, device, train_data_loader):
+def _maybe_record(metrics, stats):
+    if metrics is not None:
+        metrics.record_iter(stats if isinstance(stats, dict) else {'iter_s': float(stats)})
+
+
+def distributed_train_foo_iter(args, pipeline, device, train_data_loader, metrics=None):
     pp_rank = get_pipeline_parallel_rank()
     is_first = (pp_rank == 0)
     is_last = (pp_rank == args.pipeline_group_size - 1)
+    steps_budget = total_train_steps(args)
+    epochs = int(getattr(args, 'num_epochs', 0) or 0)
+    spe = int(getattr(args, 'steps_per_epoch', 0) or 0)
+    if epochs <= 0:
+        epochs = 1
+        spe = steps_budget
+
+    print("Training budget: epochs=%d steps_per_epoch=%d total_steps=%d"
+          % (epochs if getattr(args, 'num_epochs', 0) else 0, spe, steps_budget))
+
+    if metrics is not None:
+        metrics.mark('train_start')
 
     # A 1-stage pipeline is both first and last: it must consume token ids
     # and QQP labels on the same rank. Multi-stage first/last behavior is unchanged.
+    completed = 0
+    total_time = 0.0
+    last_iter_time = None
+
+    def _one_step(input_ids, labels):
+        nonlocal completed, total_time, last_iter_time
+        stats = pipeline.sgd_iter(input_ids, labels)
+        last_iter_time = _iter_seconds(stats)
+        _maybe_record(metrics, stats)
+        if metrics is not None and getattr(pipeline, 'last_loss', None) is not None:
+            metrics.record_loss(pipeline.last_loss)
+        if completed > 0:
+            total_time += last_iter_time
+        completed += 1
+
     if is_first and is_last:
-        total_time = 0
-        last_iter_time = None
-        for i, data in enumerate(train_data_loader):
-            input_ids = data['text'].to(device)
-            labels = _batch_labels(args, data, device)
-            current_iter_time = pipeline.sgd_iter(input_ids, labels)
-            last_iter_time = current_iter_time
-            if i > 0:
-                total_time += current_iter_time
-            if i >= args.num_iters - 1:
+        for epoch in range(epochs):
+            print("==== Epoch", epoch, "/", epochs)
+            n = 0
+            for data in train_data_loader:
+                _one_step(data['text'].to(device), _batch_labels(args, data, device))
+                n += 1
+                if n >= spe or completed >= steps_budget:
+                    break
+            if completed >= steps_budget:
                 break
-        _print_finished_iters(args, total_time, last_iter_time)
+        _print_finished_iters(args, total_time, last_iter_time, completed)
     elif is_first:
-        total_time = 0
-        last_iter_time = None
-        for i, data in enumerate(train_data_loader):
-            input_ids = data['text'].to(device)
-            current_iter_time = pipeline.sgd_iter(input_ids, None)
-            last_iter_time = current_iter_time
-            if i > 0:
-                total_time += current_iter_time
-            if i >= args.num_iters - 1:
+        for epoch in range(epochs):
+            print("==== Epoch", epoch, "/", epochs)
+            n = 0
+            for data in train_data_loader:
+                _one_step(data['text'].to(device), None)
+                n += 1
+                if n >= spe or completed >= steps_budget:
+                    break
+            if completed >= steps_budget:
                 break
-        _print_finished_iters(args, total_time, last_iter_time)
+        _print_finished_iters(args, total_time, last_iter_time, completed)
     elif is_last:
-        for i, data in enumerate(train_data_loader):
-            labels = _batch_labels(args, data, device)
-            pipeline.sgd_iter(None, labels)
-            if i >= args.num_iters - 1:
+        for epoch in range(epochs):
+            print("==== Epoch", epoch, "/", epochs)
+            n = 0
+            for data in train_data_loader:
+                _one_step(None, _batch_labels(args, data, device))
+                n += 1
+                if n >= spe or completed >= steps_budget:
+                    break
+            if completed >= steps_budget:
                 break
     else:
-        i = 0
-        while True:
-            pipeline.sgd_iter(None, None)
-            i += 1
-            if i >= args.num_iters:
+        for epoch in range(epochs):
+            print("==== Epoch", epoch, "/", epochs)
+            for _ in range(spe):
+                _one_step(None, None)
+                if completed >= steps_budget:
+                    break
+            if completed >= steps_budget:
                 break
+
+    if metrics is not None:
+        metrics.mark('train_end')

@@ -250,6 +250,28 @@ bash scripts/show_training.sh          # live combined log
 Each machine also writes `logs/rankN.log`. Combined stream: `logs/all_ranks.log`.
 Keep `--tensor-comm gloo` on Tailscale.
 
+## BERT-scale QQP fine-tune + metrics
+
+This is **not** HuggingFace BERT weights. It uses the same GPipe stack, BERT
+WordPiece vocab, and BERT-base width (hidden 768, 12 heads, 12 layers split
+4+4+4). Full QQP is ~364k samples/epoch — too large for 6GB laptops — so you
+share a step budget:
+
+```bash
+# all three laptops, same EPOCHS / STEPS_PER_EPOCH
+RANK=0 WORLD_SIZE=3 PROFILE=bert EPOCHS=2 STEPS_PER_EPOCH=50 bash scripts/run_rank.sh
+RANK=1 MASTER_IP=100.125.135.116 WORLD_SIZE=3 PROFILE=bert EPOCHS=2 STEPS_PER_EPOCH=50 bash scripts/run_rank.sh
+RANK=2 MASTER_IP=100.125.135.116 WORLD_SIZE=3 PROFILE=bert EPOCHS=2 STEPS_PER_EPOCH=50 bash scripts/run_rank.sh
+```
+
+After Gloo starts, each rank probes the **communication matrix** (ping RTT and
+~4MB tensor bandwidth), then trains. Each rank writes:
+
+- `logs/metrics_rankN.json` — wall clock, efficient compute vs barrier, latency/bandwidth matrices, losses
+- rank 0 also prints the matrices in the combined log
+
+`efficient_compute_est` is iteration time minus explicit Gloo barriers (forward/backward still include activation send/recv).
+
 ## Data (not in git)
 
 QQP is large (~50 MB per split). It is gitignored and downloaded by `scripts/download_data.sh` from:

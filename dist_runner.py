@@ -9,6 +9,8 @@ from pipeline_parallel.dist_pp_utils import get_pp_module
 from utils.dist_args_utils import *
 from utils.dist_train_utils import *
 from comm.comm_utils import *
+from comm.comm_probe import measure_comm_matrix
+from utils.metrics import RunMetrics
 
 
 def _local_rank_argv(rank):
@@ -133,9 +135,28 @@ def run_training(args):
         print("Running ", args.pp_mode, " without data parallel.")
 
     pipe = get_pp_module(args, vocab_size, num_classes, device, use_dp)
+    n_params = sum(p.numel() for p in pipe.model.parameters())
+    print("Rank", args.rank, "stage params:", n_params)
+
+    metrics = RunMetrics(args)
+    metrics.mark('probe_start')
+    try:
+        probe_device = 'cpu'
+        lat, bw = measure_comm_matrix(
+            get_pipeline_parallel_comm(),
+            args.rank,
+            args.world_size,
+            device=probe_device,
+        )
+        peers = ['rank-%d' % i for i in range(args.world_size)]
+        metrics.set_comm_matrix(lat, bw, peers)
+    except Exception as exc:
+        print('[probe] comm matrix failed:', repr(exc))
+    metrics.mark('probe_end')
 
     if args.profiling == 'no-profiling':
-        distributed_train_foo_iter(args, pipe, device, train_data_loader)
+        distributed_train_foo_iter(args, pipe, device, train_data_loader, metrics=metrics)
+        metrics.dump('%s/metrics_rank%d.json' % (args.metrics_dir, args.rank))
     else:
         prefix = './trace_json/gpt3_' + args.pp_mode
         if use_dp:
@@ -144,16 +165,17 @@ def run_training(args):
                      get_dist_arguments_str(args) + get_mixed_precision_arguments_str(args) + '_' + \
                      args.profiling + '_' + args.trace_postfix + '.json'
         if args.profiling == 'tidy_profiling':
-            distributed_train_foo_iter(args, pipe, device, train_data_loader)
+            distributed_train_foo_iter(args, pipe, device, train_data_loader, metrics=metrics)
             pipe.export_profiling_result(filename=trace_file)
         elif args.profiling == 'pytorch_profiling':
             with profiler.profile(profile_memory=True, use_cuda=args.use_cuda) as prof:
-                distributed_train_foo_iter(args, pipe, device, train_data_loader)
+                distributed_train_foo_iter(args, pipe, device, train_data_loader, metrics=metrics)
             print(prof.key_averages().table())
             prof.export_chrome_trace(trace_file)
         else:
             print("No recognized profiler?")
             assert False
+        metrics.dump('%s/metrics_rank%d.json' % (args.metrics_dir, args.rank))
 
 
 if __name__ == '__main__':
