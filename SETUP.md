@@ -80,6 +80,32 @@ TENSOR_COMM=nccl bash scripts/run_2rank_1gpu_smoke.sh
 
 Do **not** start rank 1 yourself when using `--spawn-local-ranks true`.
 
+## Three laptops (one GPU each)
+
+`world-size` must equal the number of processes. Three laptops means
+`--world-size 3 --pipeline-group-size 3`. Rank 0 is the first stage, rank 1
+is the middle, rank 2 is the last stage (that is where **loss** prints).
+
+Use the wrapper so every rank’s stdout is copied to rank 0:
+
+```bash
+# laptop A
+RANK=0 WORLD_SIZE=3 ITERS=70 bash scripts/run_rank.sh
+
+# laptops B and C (MASTER_IP = laptop A's tailscale ip -4)
+RANK=1 MASTER_IP=100.125.135.116 WORLD_SIZE=3 ITERS=70 bash scripts/run_rank.sh
+RANK=2 MASTER_IP=100.125.135.116 WORLD_SIZE=3 ITERS=70 bash scripts/run_rank.sh
+```
+
+On laptop A, in another terminal:
+
+```bash
+bash scripts/show_training.sh          # live combined log
+```
+
+Each machine also writes `logs/rankN.log`. Combined stream: `logs/all_ranks.log`.
+Keep `--tensor-comm gloo` on Tailscale.
+
 ## Data (not in git)
 
 QQP is large (~50 MB per split). It is gitignored and downloaded by `scripts/download_data.sh` from:
