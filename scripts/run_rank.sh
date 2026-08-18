@@ -48,8 +48,12 @@ if [[ -z "${MASTER_IP:-}" ]]; then
   exit 1
 fi
 
-if [[ -d /sys/class/net/tailscale0 ]]; then
-  export GLOO_SOCKET_IFNAME="${GLOO_SOCKET_IFNAME:-tailscale0}"
+# env.sh defaults GLOO to lo for local smokes. Multi-laptop runs must use
+# tailscale0 or the peer cannot connect to MASTER_IP.
+if [[ "${DTFM_LOCAL:-0}" == "1" ]]; then
+  export GLOO_SOCKET_IFNAME=lo
+elif [[ -d /sys/class/net/tailscale0 ]]; then
+  export GLOO_SOCKET_IFNAME=tailscale0
 else
   export GLOO_SOCKET_IFNAME="${GLOO_SOCKET_IFNAME:-lo}"
 fi
