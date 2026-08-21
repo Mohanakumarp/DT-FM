@@ -116,6 +116,7 @@ python -u dist_runner.py \
   --num-epochs "${EPOCHS}" \
   --steps-per-epoch "${STEPS_PER_EPOCH}" \
   --metrics-dir ./logs \
+  --skip-comm-probe "${SKIP_PROBE:-false}" \
   --train-data ./task_datasets/data/QQP/train.tsv \
   --valid-data ./task_datasets/data/QQP/dev.tsv \
   --test-data ./task_datasets/data/QQP/test.tsv \
