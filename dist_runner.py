@@ -139,20 +139,35 @@ def run_training(args):
     print("Rank", args.rank, "stage params:", n_params)
 
     metrics = RunMetrics(args)
+    # First/last ranks load all of QQP (~minutes). The middle rank skips the
+    # dataset and used to enter the blocking comm probe immediately, so Gloo
+    # send/recv hung until the 30min timeout. Wait here so every rank has
+    # finished init before any send.
+    print("Rank", args.rank, "waiting at post-init barrier before comm probe / train")
+    import torch.distributed as dist
+    dist.barrier()
+    print("Rank", args.rank, "post-init barrier done")
+
+    skip_probe = getattr(args, 'skip_comm_probe', False)
     metrics.mark('probe_start')
-    try:
-        probe_device = 'cpu'
-        lat, bw = measure_comm_matrix(
-            get_pipeline_parallel_comm(),
-            args.rank,
-            args.world_size,
-            device=probe_device,
-        )
-        peers = ['rank-%d' % i for i in range(args.world_size)]
-        metrics.set_comm_matrix(lat, bw, peers)
-    except Exception as exc:
-        print('[probe] comm matrix failed:', repr(exc))
+    if skip_probe:
+        print('[probe] skipped (--skip-comm-probe)')
+    else:
+        try:
+            lat, bw = measure_comm_matrix(
+                get_pipeline_parallel_comm(),
+                args.rank,
+                args.world_size,
+                device='cpu',
+            )
+            peers = ['rank-%d' % i for i in range(args.world_size)]
+            metrics.set_comm_matrix(lat, bw, peers)
+        except Exception as exc:
+            print('[probe] comm matrix failed:', repr(exc))
+            print('[probe] do not start training until every rank leaves the probe')
+            raise
     metrics.mark('probe_end')
+    dist.barrier()
 
     if args.profiling == 'no-profiling':
         distributed_train_foo_iter(args, pipe, device, train_data_loader, metrics=metrics)

@@ -75,6 +75,9 @@ def add_training_hyper_parameter_arguments(parser):
                              'set this so three 6GB laptops finish in minutes.')
     parser.add_argument('--metrics-dir', type=str, default='./logs',
                         help='Directory for metrics JSON.')
+    parser.add_argument('--skip-comm-probe', default=False,
+                        type=lambda x: (str(x).lower() == 'true'),
+                        help='Skip pairwise latency/bandwidth probe.')
 
 
 def add_mixed_precision_arguments(parser):
