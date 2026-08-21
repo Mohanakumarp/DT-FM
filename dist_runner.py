@@ -148,10 +148,10 @@ def run_training(args):
     dist.barrier()
     print("Rank", args.rank, "post-init barrier done")
 
-    skip_probe = getattr(args, 'skip_comm_probe', False)
+    skip_probe = getattr(args, 'skip_comm_probe', True)
     metrics.mark('probe_start')
     if skip_probe:
-        print('[probe] skipped (--skip-comm-probe)')
+        print('[probe] skipped (--skip-comm-probe). All ranks must skip or all must probe.')
     else:
         try:
             lat, bw = measure_comm_matrix(
