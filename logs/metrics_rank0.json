@@ -1,0 +1,35 @@
+{
+  "rank": 0,
+  "world_size": 3,
+  "pipeline_group_size": 3,
+  "model": {
+    "seq_length": 128,
+    "embedding_dim": 768,
+    "layers_per_stage": 4,
+    "num_heads": 12
+  },
+  "schedule": {
+    "num_epochs": 2,
+    "steps_per_epoch": 50,
+    "num_iters": 100,
+    "completed_steps": 100
+  },
+  "wall_clock_s": {
+    "total": 519.9819910526276,
+    "comm_probe": 1.9550323486328125e-05,
+    "training": 507.0832803249359
+  },
+  "training_time_s": {
+    "forward_incl_p2p": 4.860590696334839,
+    "backward_incl_p2p": 446.4410264492035,
+    "optimizer": 27.820361852645874,
+    "barrier_sync": 220.10757994651794,
+    "iter_sum": 479.2493269443512,
+    "efficient_compute_est": 259.14174699783325,
+    "efficiency": 0.5110437615528889
+  },
+  "peers": null,
+  "latency_ms": null,
+  "bandwidth_mbps": null,
+  "losses": []
+}
