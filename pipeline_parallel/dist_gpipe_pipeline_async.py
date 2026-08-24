@@ -282,6 +282,8 @@ class GpipeAsync:
         else:
             assert(target is None)
         for i in range(self.micro_batch_num):
+            print("Rank {} backward micro-batch {}/{}".format(
+                self.global_rank, i + 1, self.micro_batch_num), flush=True)
             if self.pp_rank == self.pipeline_group_size - 1:  # only send grad back to last node, do not receive
                 with torch.cuda.stream(self.torch_comp_stream):
                     self.profile_mark_backward_comp_start(i)

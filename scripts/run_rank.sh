@@ -89,7 +89,7 @@ if [[ "${RANK}" == "0" ]]; then
   echo "[run_rank] log hub on ${MASTER_IP}:${LOG_PORT}  (live: tail -F logs/all_ranks.log)"
   echo "[run_rank] start the other laptops with:"
   for ((r=1; r<WORLD_SIZE; r++)); do
-    echo "  RANK=${r} MASTER_IP=${MASTER_IP} WORLD_SIZE=${WORLD_SIZE} PROFILE=${PROFILE} EPOCHS=${EPOCHS} STEPS_PER_EPOCH=${STEPS_PER_EPOCH} ITERS=${ITERS} bash scripts/run_rank.sh"
+    echo "  RANK=${r} MASTER_IP=${MASTER_IP} WORLD_SIZE=${WORLD_SIZE} PROFILE=${PROFILE} EPOCHS=${EPOCHS} STEPS_PER_EPOCH=${STEPS_PER_EPOCH} ITERS=${ITERS} BATCH=${BATCH:-8} MICRO=${MICRO:-2} SKIP_PROBE=${SKIP_PROBE:-true} bash scripts/run_rank.sh"
   done
 fi
 
