@@ -184,6 +184,8 @@ class GpipeAsync:
         output_micro_batches = []
 
         for i in range(self.micro_batch_num):
+            print("Rank {} forward micro-batch {}/{}".format(
+                self.global_rank, i + 1, self.micro_batch_num), flush=True)
             if self.pp_rank == 0:  # Only send output to next node, do not receive
                 with torch.cuda.stream(self.torch_comp_stream):
                     self.profile_mark_forward_comp_start(i)

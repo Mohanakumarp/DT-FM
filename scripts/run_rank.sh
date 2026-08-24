@@ -110,8 +110,8 @@ python -u dist_runner.py \
   --embedding-dim "${EMBED}" \
   --num-layers "${LAYERS}" \
   --num-heads "${HEADS}" \
-  --batch-size 100 \
-  --micro-batch-size 10 \
+  --batch-size "${BATCH:-8}" \
+  --micro-batch-size "${MICRO:-2}" \
   --num-iters "${ITERS}" \
   --num-epochs "${EPOCHS}" \
   --steps-per-epoch "${STEPS_PER_EPOCH}" \
