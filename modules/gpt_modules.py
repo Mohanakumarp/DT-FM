@@ -1,9 +1,9 @@
 import math
 from torch import nn
 from torch.nn import functional
-from torch.utils.checkpoint import checkpoint
 from .task_modules import SeqClassification, Seq2SeqClassification
 from utils.dist_debug_utils import *
+from utils.checkpoint_utils import checkpoint_module
 
 
 class MultiHeadAttention(nn.Module):
@@ -74,14 +74,14 @@ class GPTTransformerLayer(nn.Module):
         # x = x + self.dropout_1(self.attn(x2, x2, x2))
         if self.use_checkpoint:
             # x.requires_grad_(True)
-            x = checkpoint(self.attn, x)
+            x = checkpoint_module(self.attn, x)
         else:
             x = self.attn(x)
         x = self.norm2(x)
         # x = x + self.dropout_2(self.ff(x2))
         if self.use_checkpoint:
             # x.requires_grad_(True)
-            x = checkpoint(self.mlp, x)
+            x = checkpoint_module(self.mlp, x)
         else:
             x = self.mlp(x)
         return x

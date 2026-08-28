@@ -6,7 +6,9 @@ from .task_modules import SeqClassification, Seq2SeqClassification
 class GPTStageBase(nn.Module):
     def __init__(self, args, vocab_size, num_classes):
         super(GPTStageBase, self).__init__()
-        self._to_cpu = (args.dist_backend == "gloo")
+        # Communication backends stage tensors themselves. Keeping model outputs
+        # on the compute device preserves the local autograd graph.
+        self._to_cpu = False
         self.task = args.task
         self._vocab_size = vocab_size
         self._embedding_dim = args.embedding_dim  # embedding dimension

@@ -1,5 +1,5 @@
 import torch
-from torch.utils.checkpoint import checkpoint
+from utils.checkpoint_utils import checkpoint_module
 
 
 class SeqClassification(torch.nn.Module):
@@ -32,7 +32,7 @@ class Seq2SeqClassification(torch.nn.Module):
         shift_logits = x[..., :-1, :].contiguous()
         shift_labels = targets[..., 1:].contiguous()
         if self.use_checkpoint:
-            x = checkpoint(self.lm_head, shift_logits.view(-1, self.lm_head.in_features), shift_labels.view(-1))
+            x = checkpoint_module(self.lm_head, shift_logits.view(-1, self.lm_head.in_features), shift_labels.view(-1))
         else:
             x = self.lm_head(shift_logits.view(-1, self.lm_head.in_features), shift_labels.view(-1))
         # if self.use_checkpoint:

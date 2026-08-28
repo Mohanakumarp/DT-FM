@@ -1,4 +1,7 @@
-from .nccl_backend import *
+import os
+
+import torch
+import torch.distributed as dist
 
 _DATA_PARALLEL_COMM = None
 _DATA_PARALLEL_RANK = None
@@ -42,10 +45,9 @@ class GlooTensorCommunicator:
     def send(self, tensor, dst, stream=None):
         if tensor is None:
             raise ValueError("GlooTensorCommunicator.send got tensor=None")
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
+        _synchronize_tensor(tensor)
         payload = tensor.detach().contiguous()
-        if payload.is_cuda:
+        if payload.device.type != 'cpu':
             payload = payload.cpu()
         dist.send(payload, dst=self._world_rank(dst))
 
@@ -58,39 +60,37 @@ class GlooTensorCommunicator:
         # is rejected by autograd, so fill storage without tracking.
         with torch.no_grad():
             tensor.copy_(tmp)
-        if tensor.is_cuda:
-            torch.cuda.synchronize()
+        _synchronize_tensor(tensor)
 
     def broadcast(self, tensor, src, stream=None):
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
+        _synchronize_tensor(tensor)
         payload = tensor.detach().contiguous()
-        was_cuda = payload.is_cuda
-        if was_cuda:
+        was_accelerator = payload.device.type != 'cpu'
+        if was_accelerator:
             payload = payload.cpu()
         dist.broadcast(payload, src=self._world_rank(src))
-        if was_cuda:
+        if was_accelerator:
             with torch.no_grad():
                 tensor.copy_(payload)
+            _synchronize_tensor(tensor)
 
     def all_reduce(self, tensor, stream=None, op=None):
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
+        _synchronize_tensor(tensor)
         payload = tensor.detach().contiguous()
-        was_cuda = payload.is_cuda
-        if was_cuda:
+        was_accelerator = payload.device.type != 'cpu'
+        if was_accelerator:
             payload = payload.cpu()
         dist.all_reduce(payload)
         with torch.no_grad():
             tensor.copy_(payload)
+        _synchronize_tensor(tensor)
 
 
 class SingleGPUCommunicator:
     """
-    No-op communicator used only for a world-size-1 smoke test.
+    No-op communicator used for a world-size-1 run on any device.
 
-    With one GPU there is no inter-GPU communication required.
-    This is NOT used for the actual multi-GPU DT-FM experiment.
+    With one process there is no inter-process communication required.
     """
 
     def __init__(self, rank=0, world_size=1):
@@ -178,6 +178,28 @@ def get_pipeline_parallel_world_size():
     return _PIPELINE_PARALLEL_WORLD_SIZE
 
 
+def _synchronize_tensor(tensor):
+    if tensor.device.type == 'cuda':
+        torch.cuda.synchronize(tensor.device)
+    elif tensor.device.type == 'xpu':
+        torch.xpu.synchronize(tensor.device)
+
+
+def default_init(args):
+    # Tailscale has IPv4 and IPv6 addresses. Pinning a Linux interface avoids
+    # address-family mismatches when the caller did not choose one explicitly.
+    if os.path.isdir('/sys/class/net/tailscale0'):
+        os.environ['GLOO_SOCKET_IFNAME'] = 'tailscale0'
+    print('[gloo] init', args.dist_url, 'rank', args.rank, '/', args.world_size,
+          'iface', os.environ.get('GLOO_SOCKET_IFNAME'))
+    dist.init_process_group(
+        backend='gloo',
+        init_method=args.dist_url,
+        world_size=args.world_size,
+        rank=args.rank,
+    )
+
+
 def _nccl_ok_consensus(local_ok, world_size):
     flag = torch.tensor([1 if local_ok else 0], dtype=torch.int64)
     gathered = [torch.zeros(1, dtype=torch.int64) for _ in range(world_size)]
@@ -187,6 +209,7 @@ def _nccl_ok_consensus(local_ok, world_size):
 
 def _try_nccl_communicator(comm_rank, cuda_id, comm_group_size, comm_name):
     try:
+        from .nccl_backend import NCCLCommunicator
         return NCCLCommunicator(comm_rank, cuda_id, comm_group_size, comm_name)
     except Exception as exc:
         print("NCCLCommunicator init failed for", comm_name,
@@ -196,6 +219,8 @@ def _try_nccl_communicator(comm_rank, cuda_id, comm_group_size, comm_name):
 
 def _build_pipeline_comm(args, comm_rank, comm_group_size, comm_name, world_rank_base):
     tensor_comm = getattr(args, 'tensor_comm', 'auto')
+    if tensor_comm == 'auto' and getattr(args, 'device_backend', 'cuda') != 'cuda':
+        tensor_comm = 'gloo'
     if tensor_comm == 'gloo':
         return GlooTensorCommunicator(
             comm_rank, comm_group_size, comm_name, world_rank_base
@@ -223,11 +248,12 @@ def _build_pipeline_comm(args, comm_rank, comm_group_size, comm_name, world_rank
 
 
 def init_communicators(args):
-    default_init(args)
-
     assert args.world_size == (
         args.data_group_size * args.pipeline_group_size
     )
+
+    if args.world_size > 1:
+        default_init(args)
 
     global _DATA_PARALLEL_COMM
     global _PIPELINE_PARALLEL_COMM
@@ -282,6 +308,9 @@ def init_communicators(args):
         )
 
     elif args.world_size > 1:
+        if getattr(args, 'device_backend', 'cuda') != 'cuda':
+            raise ValueError('data parallelism currently requires NVIDIA CUDA and NCCL')
+        from .nccl_backend import NCCLCommunicator
         _DATA_PARALLEL_COMM = NCCLCommunicator(
             _DATA_PARALLEL_RANK,
             args.cuda_id,

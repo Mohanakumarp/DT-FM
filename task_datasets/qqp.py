@@ -84,27 +84,31 @@ class QQPDataset(GLUEAbstractDataset):
 
 def get_glue_qqp_train_data_loader(args, tokenizer, num_workers=0):
     train_dataset = QQPDataset('training', args.train_data, tokenizer, args.seq_length)
-    train_sampler = torch.utils.data.RandomSampler(train_dataset)
+    generator = torch.Generator()
+    generator.manual_seed(args.seed)
+    train_sampler = torch.utils.data.RandomSampler(train_dataset, generator=generator)
     train_data_loader = torch.utils.data.DataLoader(train_dataset,
                                                     batch_size=args.batch_size,
                                                     sampler=train_sampler,
                                                     shuffle=False,
                                                     num_workers=num_workers,
                                                     drop_last=True,
-                                                    pin_memory=True,
+                                                    pin_memory=getattr(args, 'pin_memory', False),
                                                     collate_fn=None)
     return train_data_loader
 
 
 def get_glue_qqp_test_data_loader(args, tokenizer, num_workers=0):
     test_dataset = QQPDataset('testing', args.test_data, tokenizer, args.seq_length)
-    test_sampler = torch.utils.data.RandomSampler(test_dataset)
+    generator = torch.Generator()
+    generator.manual_seed(args.seed)
+    test_sampler = torch.utils.data.RandomSampler(test_dataset, generator=generator)
     test_data_loader = torch.utils.data.DataLoader(test_dataset,
                                                     batch_size=args.batch_size,
                                                     sampler=test_sampler,
                                                     shuffle=False,
                                                     num_workers=num_workers,
                                                     drop_last=True,
-                                                    pin_memory=True,
+                                                    pin_memory=getattr(args, 'pin_memory', False),
                                                     collate_fn=None)
     return test_data_loader

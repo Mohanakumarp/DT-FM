@@ -71,6 +71,7 @@ class ShardedPSDP:
             self.torch_optim_comp_stream.record_event(self.optimizer_step_start_event)
 
     def _sync_gradients(self):
+        import cupy
         with torch.cuda.stream(self.dp_comm_stream):
             cupy_dp_stream = cupy.cuda.ExternalStream(self.dp_comm_stream.cuda_stream)
             self.dp_comm_stream.wait_event(self.backward_ready_event)

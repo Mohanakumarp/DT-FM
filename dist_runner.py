@@ -2,8 +2,11 @@ import argparse
 import os
 import sys
 import subprocess
+import torch
 import torch.autograd.profiler as profiler
+import torch.distributed as dist
 from task_datasets.qqp import get_glue_qqp_train_data_loader
+from task_datasets.synthetic import get_synthetic_train_data_loader
 from task_datasets.tokenizer import build_tokenizer
 from pipeline_parallel.dist_pp_utils import get_pp_module
 from utils.dist_args_utils import *
@@ -11,6 +14,7 @@ from utils.dist_train_utils import *
 from comm.comm_utils import *
 from comm.comm_probe import measure_comm_matrix
 from utils.metrics import RunMetrics
+from utils.device_utils import describe_device, resolve_device, validate_runtime_args
 
 
 def _local_rank_argv(rank):
@@ -85,8 +89,8 @@ def main():
     add_parallel_schema_arguments(parser)
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
-    parser.add_argument('--profiling', type=str, default='tidy_profiling', metavar='S',
-                        help='enable which profiling? default: tidy mode')
+    parser.add_argument('--profiling', type=str, default='no-profiling', metavar='S',
+                        help='profiling mode: no-profiling, tidy_profiling, or pytorch_profiling')
     parser.add_argument('--trace-postfix', type=str, default='default', metavar='S',
                         help='postfix of the tracing file name.')
     args = parser.parse_args()
@@ -109,20 +113,23 @@ def main():
 
 def run_training(args):
     torch.manual_seed(args.seed)
-    if args.use_cuda:
-        assert (torch.cuda.is_available())
-        device = torch.device('cuda', args.cuda_id)
-    else:
-        device = torch.device('cpu')
+    device = resolve_device(args)
+    validate_runtime_args(args, device)
+    print('==== Compute device:', describe_device(device, args.device_backend))
 
     init_communicators(args)
 
     if get_pipeline_parallel_rank() == 0 or get_pipeline_parallel_rank() == args.pipeline_group_size-1:
-        tokenizer = build_tokenizer(args)
-        print("token vocab size:", tokenizer.vocab_size)
-        train_data_loader = get_glue_qqp_train_data_loader(args, tokenizer)
+        if args.synthetic_data:
+            vocab_size = args.synthetic_vocab_size
+            train_data_loader = get_synthetic_train_data_loader(args)
+            print('synthetic vocab size:', vocab_size)
+        else:
+            tokenizer = build_tokenizer(args)
+            print("token vocab size:", tokenizer.vocab_size)
+            train_data_loader = get_glue_qqp_train_data_loader(args, tokenizer)
+            vocab_size = tokenizer.vocab_size
         num_classes = 2
-        vocab_size = tokenizer.vocab_size
     else:
         train_data_loader = None
         num_classes = 2
@@ -143,14 +150,16 @@ def run_training(args):
     # dataset and used to enter the blocking comm probe immediately, so Gloo
     # send/recv hung until the 30min timeout. Wait here so every rank has
     # finished init before any send.
-    print("Rank", args.rank, "waiting at post-init barrier before comm probe / train")
-    import torch.distributed as dist
-    dist.barrier()
-    print("Rank", args.rank, "post-init barrier done")
+    if args.world_size > 1:
+        print("Rank", args.rank, "waiting at post-init barrier before comm probe / train")
+        dist.barrier()
+        print("Rank", args.rank, "post-init barrier done")
 
     skip_probe = getattr(args, 'skip_comm_probe', True)
     metrics.mark('probe_start')
-    if skip_probe:
+    if args.world_size == 1:
+        print('[probe] skipped for a single-process run.')
+    elif skip_probe:
         print('[probe] skipped (--skip-comm-probe). All ranks must skip or all must probe.')
     else:
         try:
@@ -167,7 +176,8 @@ def run_training(args):
             print('[probe] do not start training until every rank leaves the probe')
             raise
     metrics.mark('probe_end')
-    dist.barrier()
+    if args.world_size > 1:
+        dist.barrier()
 
     if args.profiling == 'no-profiling':
         distributed_train_foo_iter(args, pipe, device, train_data_loader, metrics=metrics)

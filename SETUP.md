@@ -1,94 +1,114 @@
-<<<<<<< HEAD
-# New-system setup
+# Device setup
 
-This repository trains a small GPT-style model on GLUE QQP with GPipe pipeline parallelism. The original project targeted a multi-node AWS GPU cluster. This document is the **local reproduction path** that works on a single NVIDIA GPU, including WSL.
+DT-FM can run its GPipe training path on CPU, NVIDIA CUDA, or a single AMD
+ROCm device. CPU is the portable distributed baseline. AMD support is currently
+limited to one process while the Windows ROCm communication stack matures.
 
-## What you need
+## CPU on Windows
 
-- Linux or WSL2
-- An NVIDIA GPU + driver (`nvidia-smi` works)
-- [Miniconda](https://docs.conda.io/en/latest/miniconda.html) or Anaconda
-- About 5 GB disk for the conda env, NCCL, and QQP
+Requirements are Python 3.10 or newer and enough RAM for the selected model.
+From PowerShell in the repository root:
 
-Tested combination:
+```powershell
+.\scripts\setup_cpu.ps1
+```
 
-| Component | Version |
-|---|---|
-| Python | 3.8 |
-| PyTorch | 1.9.0+cu111 |
-| CUDA runtime | 11.8 (classic `cudatoolkit=11.8` from defaults) |
-| CuPy | 12.3.0 (`cupy-cuda11x`) |
-| NCCL | installed by `python -m cupyx.tools.install_library --library nccl --cuda 11.1` |
+The script creates `.venv-cpu`, installs the official CPU PyTorch wheel, and
+runs a deterministic synthetic training iteration. Run the tests again with:
 
-The driver can be much newer than 11.8 (for example 595.x / CUDA 13.2). Do not upgrade PyTorch or CuPy to match the driver.
+```powershell
+.\scripts\run_cpu_smoke.ps1
+.\scripts\run_cpu_smoke.ps1 -TwoRanks
+```
 
-**Do not** run `conda install -c nvidia cuda-toolkit=11.8`. That hyphenated metapackage does not pin `cuda-version`, and the solver will pull CUDA 12/13 libraries (`libcublas.so.13`, `cuda-nvcc` 13.x, …). CuPy then fails with `libcudart.so.11.0` / `libcublas.so.11` missing. The correct package name is the classic **`cudatoolkit=11.8`** (no hyphen) from `defaults`.
+The two-rank test starts both processes locally and sends activations and
+gradients through Gloo.
 
-## One-command install
+## CPU on Linux or WSL
 
-From the repo root:
+Create a virtual environment and install the CPU build of PyTorch:
+
+```bash
+python3 -m venv .venv-cpu
+source .venv-cpu/bin/activate
+python -m pip install --upgrade pip
+python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+python -m pip install -r requirements.txt
+```
+
+Run a one-process smoke test:
+
+```bash
+python -u dist_runner.py \
+  --device cpu \
+  --world-size 1 --pipeline-group-size 1 --data-group-size 1 --rank 0 \
+  --synthetic-data true --synthetic-vocab-size 512 \
+  --seq-length 32 --embedding-dim 64 --num-layers 1 --num-heads 4 \
+  --batch-size 2 --micro-batch-size 1 --num-iters 1 \
+  --use-offload false --profiling no-profiling
+```
+
+For a CPU-only cluster, give every laptop the same PyTorch version and model
+arguments. Use `--tensor-comm gloo`, set `--world-size` and
+`--pipeline-group-size` to the number of laptops, and point every rank at the
+rank-0 address with `--dist-url tcp://ADDRESS:PORT`.
+
+## AMD Ryzen AI 7 350 and Radeon 860M
+
+The Radeon 860M uses the `gfx1152` target. AMD publishes device-specific
+PyTorch packages for it through TheRock. These packages are newer than the
+production Windows ROCm stack, so keep them in a separate environment. The
+tested package requires Python 3.12:
+
+```powershell
+.\scripts\setup_amd_rocm.ps1
+```
+
+The script creates `.venv-amd`, installs `torch[device-gfx1152]`, checks HIP
+device enumeration, and runs one synthetic FP32 training iteration. To repeat
+only the repository test:
+
+```powershell
+.\scripts\run_amd_smoke.ps1
+```
+
+ROCm PyTorch exposes AMD GPUs through `torch.cuda`. DT-FM distinguishes ROCm
+by checking `torch.version.hip`. CuPy NCCL is not loaded for this path.
+
+Current restrictions:
+
+- AMD runs require `--world-size 1`.
+- FP32 is the tested starting precision.
+- RCCL and DT-FM data parallelism are not enabled on Windows.
+- Use the CPU environment for multi-laptop training.
+
+## NVIDIA CUDA (legacy path)
+
+The original CUDA 11 setup remains in the repository, but it was not re-tested
+as part of the CPU and Radeon work:
 
 ```bash
 bash setup.sh
-```
-
-That script will:
-
-1. Create conda env `dtfm` with Python 3.8
-2. Install PyTorch 1.9.0+cu111, CuPy, `six`, `numpy`
-3. Install NCCL 2.8.4 for CUDA 11.1
-4. Add a `libnvrtc.so.11.0` compatibility symlink if needed
-5. Download GLUE QQP and the BERT-large-cased vocab
-6. Run a 1-GPU smoke test (`world-size=1`, 1 tiny iteration)
-
-Useful flags:
-
-```bash
-bash setup.sh --skip-smoke
-bash setup.sh --data-only
-bash setup.sh --check
-```
-
-## Every new shell
-
-```bash
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate dtfm
 source scripts/env.sh
-```
-
-`scripts/env.sh` sets `LD_LIBRARY_PATH` so CuPy can find NCCL and the CUDA 11.8 runtime. It also `LD_PRELOAD`s conda's `libcudart.so.11.0`. That is required because PyTorch 1.9.0+cu111 ships a CUDA 11.1 `libcudart` with the same SONAME; importing torch first would otherwise shadow the 11.8 library and CuPy 12.3 fails with `undefined symbol: cudaMemPoolCreate`.
-
-## Smoke tests
-
-One process, one GPU (full forward / QQP loss / backward / optimizer):
-
-```bash
 bash scripts/run_1gpu_smoke.sh
 ```
 
-Two processes on the **same** GPU. Rank 0 is the first pipeline stage and spawns rank 1 as the last stage:
+The legacy setup installs PyTorch 1.9, CuPy, CUDA 11.8, and NCCL. Use
+`--tensor-comm gloo` for two processes sharing one GPU or when NCCL topology
+detection fails under WSL.
+
+## QQP data
+
+Synthetic smoke tests do not require external data. Download QQP before a real
+training run:
 
 ```bash
-bash scripts/run_2rank_1gpu_smoke.sh
+bash scripts/download_data.sh
 ```
 
-On a **single GPU** (this laptop, or WSL) keep `--tensor-comm gloo`. NCCL 2.16 refuses two ranks on the same CUDA device (`Duplicate GPU detected`) and then aborts. On native **multi-GPU** Linux, run:
-
-```bash
-TENSOR_COMM=nccl bash scripts/run_2rank_1gpu_smoke.sh
-```
-
-Do **not** start rank 1 yourself when using `--spawn-local-ranks true`.
-
-## Data (not in git)
-
-QQP is large (~50 MB per split). It is gitignored and downloaded by `scripts/download_data.sh` from:
-
-- QQP: `https://dl.fbaipublicfiles.com/glue/data/QQP.zip`
-- Vocab: Hugging Face `bert-large-cased` `vocab.txt`
-
-Expected layout after download:
+Expected files:
 
 ```text
 task_datasets/data/bert-large-cased-vocab.txt
@@ -97,239 +117,26 @@ task_datasets/data/QQP/dev.tsv
 task_datasets/data/QQP/test.tsv
 ```
 
-## Pushing to GitHub
+The QQP TSV files are ignored by Git.
 
-`.gitignore` already excludes:
+## Supported scope
 
-- `__pycache__/`
-- `*.orig`, `*.backup`, `*.save`
-- `task_datasets/data/QQP/`
-- profiling JSON under `trace_json/`
+Verified in the current Windows test environment:
 
-Do not commit the QQP TSVs. After clone, run `bash setup.sh` (or `bash scripts/download_data.sh`).
+- single-process CPU training
+- CPU pipeline parallelism over Gloo
+- single-process AMD ROCm training
+- deterministic synthetic smoke data
 
-## What is implemented vs original paper code
+Legacy paths retained but not re-verified in this environment:
 
-Working locally:
+- single-process NVIDIA CUDA training
+- NVIDIA pipeline communication through NCCL or Gloo
 
-- GPipe (`--pp-mode gpipe`)
-- QQP sequence classification
-- `world-size=1` full model on one GPU
-- `world-size=2` local pipeline via spawned rank 1
-- Gloo process group + optional Gloo tensor transport
+Not implemented in this tree:
 
-Not in this git tree (do not invent them):
-
+- Intel XPU execution
+- AMD multi-process GPU execution
+- heterogeneous GPU-to-GPU collectives
 - `dist_1f1b_pipeline_async.py`
 - `dist_gpipe_pipeline_async_offload.py`
-
-Known WSL limit: CuPy NCCL communicator init can fail even after `libnccl.so.2` is installed. Use Gloo tensor comm for local multi-process tests until you have native Linux + working NCCL.
-
-## Manual install (if you do not want the script)
-
-```bash
-conda create -y -n dtfm python=3.8 cudatoolkit=11.8
-conda activate dtfm
-python -m pip install --upgrade pip
-python -m pip install numpy==1.24.4 six
-python -m pip install torch==1.9.0+cu111 -f https://download.pytorch.org/whl/torch_stable.html
-python -m pip install cupy-cuda11x==12.3.0
-python -m cupyx.tools.install_library --library nccl --cuda 11.1
-ln -sfn "$CONDA_PREFIX/lib/libnvrtc.so.11.1" "$CONDA_PREFIX/lib/libnvrtc.so.11.0"
-bash scripts/download_data.sh
-source scripts/env.sh
-```
-
-The PyTorch `+cu111` wheel does **not** ship `libcublas.so.11` (it only has a hashed `libcudart-*.so.11.0`). CuPy needs the unmangled CUDA 11 SONAMEs from `cudatoolkit=11.8`.
-=======
-# New-system setup
-
-This repository trains a small GPT-style model on GLUE QQP with GPipe pipeline parallelism. The original project targeted a multi-node AWS GPU cluster. This document is the **local reproduction path** that works on a single NVIDIA GPU, including WSL.
-
-## What you need
-
-- Linux or WSL2
-- An NVIDIA GPU + driver (`nvidia-smi` works)
-- [Miniconda](https://docs.conda.io/en/latest/miniconda.html) or Anaconda
-- About 5 GB disk for the conda env, NCCL, and QQP
-
-Tested combination:
-
-| Component | Version |
-|---|---|
-| Python | 3.8 |
-| PyTorch | 1.9.0+cu111 |
-| CUDA runtime | 11.8 (classic `cudatoolkit=11.8` from defaults) |
-| CuPy | 12.3.0 (`cupy-cuda11x`) |
-| NCCL | installed by `python -m cupyx.tools.install_library --library nccl --cuda 11.1` |
-
-The driver can be much newer than 11.8 (for example 595.x / CUDA 13.2). Do not upgrade PyTorch or CuPy to match the driver.
-
-**Do not** run `conda install -c nvidia cuda-toolkit=11.8`. That hyphenated metapackage does not pin `cuda-version`, and the solver will pull CUDA 12/13 libraries (`libcublas.so.13`, `cuda-nvcc` 13.x, …). CuPy then fails with `libcudart.so.11.0` / `libcublas.so.11` missing. The correct package name is the classic **`cudatoolkit=11.8`** (no hyphen) from `defaults`.
-
-## One-command install
-
-From the repo root:
-
-```bash
-bash setup.sh
-```
-
-That script will:
-
-1. Create conda env `dtfm` with Python 3.8
-2. Install PyTorch 1.9.0+cu111, CuPy, `six`, `numpy`
-3. Install NCCL 2.8.4 for CUDA 11.1
-4. Add a `libnvrtc.so.11.0` compatibility symlink if needed
-5. Download GLUE QQP and the BERT-large-cased vocab
-6. Run a 1-GPU smoke test (`world-size=1`, 1 tiny iteration)
-
-Useful flags:
-
-```bash
-bash setup.sh --skip-smoke
-bash setup.sh --data-only
-bash setup.sh --check
-```
-
-## Every new shell
-
-```bash
-source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate dtfm
-source scripts/env.sh
-```
-
-`scripts/env.sh` sets `LD_LIBRARY_PATH` so CuPy can find NCCL and the CUDA 11.8 runtime. It also `LD_PRELOAD`s conda's `libcudart.so.11.0`. That is required because PyTorch 1.9.0+cu111 ships a CUDA 11.1 `libcudart` with the same SONAME; importing torch first would otherwise shadow the 11.8 library and CuPy 12.3 fails with `undefined symbol: cudaMemPoolCreate`.
-
-## Smoke tests
-
-One process, one GPU (full forward / QQP loss / backward / optimizer):
-
-```bash
-bash scripts/run_1gpu_smoke.sh
-```
-
-Two processes on the **same** GPU. Rank 0 is the first pipeline stage and spawns rank 1 as the last stage:
-
-```bash
-bash scripts/run_2rank_1gpu_smoke.sh
-```
-
-On a **single GPU** (this laptop, or WSL) keep `--tensor-comm gloo`. NCCL 2.16 refuses two ranks on the same CUDA device (`Duplicate GPU detected`) and then aborts. On native **multi-GPU** Linux, run:
-
-```bash
-TENSOR_COMM=nccl bash scripts/run_2rank_1gpu_smoke.sh
-```
-
-Do **not** start rank 1 yourself when using `--spawn-local-ranks true`.
-
-## Three laptops (one GPU each)
-
-`world-size` must equal the number of processes. Three laptops means
-`--world-size 3 --pipeline-group-size 3`. Rank 0 is the first stage, rank 1
-is the middle, rank 2 is the last stage (that is where **loss** prints).
-
-Use the wrapper so every rank’s stdout is copied to rank 0:
-
-```bash
-# laptop A
-RANK=0 WORLD_SIZE=3 ITERS=70 bash scripts/run_rank.sh
-
-# laptops B and C (MASTER_IP = laptop A's tailscale ip -4)
-RANK=1 MASTER_IP=100.125.135.116 WORLD_SIZE=3 ITERS=70 bash scripts/run_rank.sh
-RANK=2 MASTER_IP=100.125.135.116 WORLD_SIZE=3 ITERS=70 bash scripts/run_rank.sh
-```
-
-On laptop A, in another terminal:
-
-```bash
-bash scripts/show_training.sh          # live combined log
-```
-
-Each machine also writes `logs/rankN.log`. Combined stream: `logs/all_ranks.log`.
-Keep `--tensor-comm gloo` on Tailscale.
-
-## BERT-scale QQP fine-tune + metrics
-
-This is **not** HuggingFace BERT weights. It uses the same GPipe stack, BERT
-WordPiece vocab, and BERT-base width (hidden 768, 12 heads, 12 layers split
-4+4+4). Full QQP is ~364k samples/epoch — too large for 6GB laptops — so you
-share a step budget:
-
-```bash
-# all three laptops, same EPOCHS / STEPS_PER_EPOCH
-RANK=0 WORLD_SIZE=3 PROFILE=bert EPOCHS=2 STEPS_PER_EPOCH=50 bash scripts/run_rank.sh
-RANK=1 MASTER_IP=100.125.135.116 WORLD_SIZE=3 PROFILE=bert EPOCHS=2 STEPS_PER_EPOCH=50 bash scripts/run_rank.sh
-RANK=2 MASTER_IP=100.125.135.116 WORLD_SIZE=3 PROFILE=bert EPOCHS=2 STEPS_PER_EPOCH=50 bash scripts/run_rank.sh
-```
-
-After Gloo starts, each rank probes the **communication matrix** (ping RTT and
-~4MB tensor bandwidth), then trains. Each rank writes:
-
-- `logs/metrics_rankN.json` — wall clock, efficient compute vs barrier, latency/bandwidth matrices, losses
-- rank 0 also prints the matrices in the combined log
-
-`efficient_compute_est` is iteration time minus explicit Gloo barriers (forward/backward still include activation send/recv).
-
-## Data (not in git)
-
-QQP is large (~50 MB per split). It is gitignored and downloaded by `scripts/download_data.sh` from:
-
-- QQP: `https://dl.fbaipublicfiles.com/glue/data/QQP.zip`
-- Vocab: Hugging Face `bert-large-cased` `vocab.txt`
-
-Expected layout after download:
-
-```text
-task_datasets/data/bert-large-cased-vocab.txt
-task_datasets/data/QQP/train.tsv
-task_datasets/data/QQP/dev.tsv
-task_datasets/data/QQP/test.tsv
-```
-
-## Pushing to GitHub
-
-`.gitignore` already excludes:
-
-- `__pycache__/`
-- `*.orig`, `*.backup`, `*.save`
-- `task_datasets/data/QQP/`
-- profiling JSON under `trace_json/`
-
-Do not commit the QQP TSVs. After clone, run `bash setup.sh` (or `bash scripts/download_data.sh`).
-
-## What is implemented vs original paper code
-
-Working locally:
-
-- GPipe (`--pp-mode gpipe`)
-- QQP sequence classification
-- `world-size=1` full model on one GPU
-- `world-size=2` local pipeline via spawned rank 1
-- Gloo process group + optional Gloo tensor transport
-
-Not in this git tree (do not invent them):
-
-- `dist_1f1b_pipeline_async.py`
-- `dist_gpipe_pipeline_async_offload.py`
-
-Known WSL limit: CuPy NCCL communicator init can fail even after `libnccl.so.2` is installed. Use Gloo tensor comm for local multi-process tests until you have native Linux + working NCCL.
-
-## Manual install (if you do not want the script)
-
-```bash
-conda create -y -n dtfm python=3.8 cudatoolkit=11.8
-conda activate dtfm
-python -m pip install --upgrade pip
-python -m pip install numpy==1.24.4 six
-python -m pip install torch==1.9.0+cu111 -f https://download.pytorch.org/whl/torch_stable.html
-python -m pip install cupy-cuda11x==12.3.0
-python -m cupyx.tools.install_library --library nccl --cuda 11.1
-ln -sfn "$CONDA_PREFIX/lib/libnvrtc.so.11.1" "$CONDA_PREFIX/lib/libnvrtc.so.11.0"
-bash scripts/download_data.sh
-source scripts/env.sh
-```
-
-The PyTorch `+cu111` wheel does **not** ship `libcublas.so.11` (it only has a hashed `libcudart-*.so.11.0`). CuPy needs the unmangled CUDA 11 SONAMEs from `cudatoolkit=11.8`.
->>>>>>> d7523f2297c421bd5cdf5d411a716171551d19ec

@@ -1,6 +1,8 @@
 def add_device_arguments(parser):
-    parser.add_argument('--use-cuda', default=True, type=lambda x: (str(x).lower() == 'true'),
-                        help='if this is set to True, will use cuda to train')
+    parser.add_argument('--device', choices=['auto', 'cpu', 'cuda', 'rocm', 'xpu'], default='auto',
+                        help='compute device (default: auto)')
+    parser.add_argument('--use-cuda', default=None, type=lambda x: (str(x).lower() == 'true'),
+                        help='deprecated compatibility flag; prefer --device')
     parser.add_argument('--cuda-id', type=int, default=0, metavar='N',
                         help='cuda index, if the instance has multiple GPUs.')
     parser.add_argument('--cuda-num', type=int, default=1, metavar='N',
@@ -44,6 +46,13 @@ def add_qqp_task_arguments(parser):
                         help='-')
     parser.add_argument('--make-vocab-size-divisible-by', type=int, default=128, metavar='N',
                         help='-')
+    parser.add_argument('--synthetic-data', default=False,
+                        type=lambda x: (str(x).lower() == 'true'),
+                        help='use deterministic generated tokens instead of QQP')
+    parser.add_argument('--synthetic-samples', type=int, default=32,
+                        help='minimum generated samples for a synthetic run')
+    parser.add_argument('--synthetic-vocab-size', type=int, default=2048,
+                        help='vocabulary size for synthetic smoke tests')
 
 
 def add_model_arguments(parser):

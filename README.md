@@ -9,9 +9,20 @@ This is a research project developed by [DS3Lab@ETH Zurich](https://ds3lab.inf.e
 
 - The other modules are self-document to support the distributed training within the scope of pipeline parallelism and data parallelism.
 
-## Local setup (new machine)
+## Local setup
 
-For a single NVIDIA GPU (Linux or WSL), from the repo root:
+The portable starting point is CPU training on Windows, Linux, or WSL. On
+Windows, from the repository root:
+
+```powershell
+.\scripts\setup_cpu.ps1
+.\scripts\run_cpu_smoke.ps1 -TwoRanks
+```
+
+The synthetic smoke tests do not need QQP. See [SETUP.md](./SETUP.md) for CPU
+cluster commands and the experimental single-process AMD Radeon 860M path.
+
+For the original single NVIDIA GPU setup on Linux or WSL:
 
 ```bash
 bash setup.sh
@@ -32,7 +43,7 @@ bash scripts/run_1gpu_smoke.sh          # 1 process, 1 GPU
 bash scripts/run_2rank_1gpu_smoke.sh    # rank 0 spawns rank 1 on the same GPU
 ```
 
-QQP is downloaded by the setup script and is **not** stored in git. See [SETUP.md](./SETUP.md) for the exact package versions, WSL/NCCL notes, and a manual install.
+QQP is downloaded by the NVIDIA setup script and is **not** stored in git.
 
 ## Cite Our Paper
 

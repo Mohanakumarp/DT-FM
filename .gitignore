@@ -7,6 +7,7 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .ipynb_checkpoints/
+.venv*/
 
 # Local editor / OS
 .DS_Store
@@ -33,6 +34,7 @@ task_datasets/data/*.tsv
 logs/*.log
 logs/*.txt
 !logs/readme.txt
+logs/smoke/
 trace_json/*.json
 !trace_json/doc.txt
 *.pt

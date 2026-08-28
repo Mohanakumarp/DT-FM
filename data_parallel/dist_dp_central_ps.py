@@ -95,6 +95,7 @@ class CentralPSDP:
                 self.dp_comm_stream.record_event(self.broadcast_reduced_grad_end_events[name])
 
     def _reduce_gradients(self):
+        import cupy
         with torch.cuda.stream(self.dp_comm_stream):
             cupy_dp_stream = cupy.cuda.ExternalStream(self.dp_comm_stream.cuda_stream)
             self.dp_comm_stream.wait_event(self.backward_ready_event)
@@ -109,6 +110,7 @@ class CentralPSDP:
                     self.profile_mark_reduce_end(name)
 
     def _broadcast_reduced_gradients(self):
+        import cupy
         with torch.cuda.stream(self.dp_comm_stream):
             cupy_dp_stream = cupy.cuda.ExternalStream(self.dp_comm_stream.cuda_stream)
             if self.flatten:
