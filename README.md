@@ -20,7 +20,8 @@ Windows, from the repository root:
 ```
 
 The synthetic smoke tests do not need QQP. See [SETUP.md](./SETUP.md) for CPU
-cluster commands and the experimental single-process AMD Radeon 860M path.
+cluster commands, the verified single-process AMD Radeon path, and the Intel
+XPU path that must still be exercised on supported Intel hardware.
 
 For the original single NVIDIA GPU setup on Linux or WSL:
 

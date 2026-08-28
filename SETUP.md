@@ -1,8 +1,8 @@
 # Device setup
 
-DT-FM can run its GPipe training path on CPU, NVIDIA CUDA, or a single AMD
-ROCm device. CPU is the portable distributed baseline. AMD support is currently
-limited to one process while the Windows ROCm communication stack matures.
+DT-FM can run its GPipe training path on CPU, NVIDIA CUDA, a single AMD ROCm
+device, or a single Intel XPU device. CPU is the portable distributed baseline.
+AMD and Intel accelerator support is currently limited to one process.
 
 ## CPU on Windows
 
@@ -52,6 +52,37 @@ For a CPU-only cluster, give every laptop the same PyTorch version and model
 arguments. Use `--tensor-comm gloo`, set `--world-size` and
 `--pipeline-group-size` to the number of laptops, and point every rank at the
 rank-0 address with `--dist-url tcp://ADDRESS:PORT`.
+
+## Intel Arc and Core Ultra graphics
+
+Use upstream PyTorch XPU on a supported Intel Arc GPU or Core Ultra processor
+with Arc graphics. Older Intel UHD and Iris Xe devices are not guaranteed to
+work. Install a current Intel graphics driver before running the setup:
+
+```powershell
+.\scripts\setup_intel_xpu.ps1
+```
+
+The script creates `.venv-intel`, installs PyTorch from the official XPU wheel
+index, verifies device enumeration, runs a matrix multiplication with backward
+propagation, and then runs one synthetic DT-FM training iteration. Repeat only
+the repository test with:
+
+```powershell
+.\scripts\run_intel_xpu_smoke.ps1
+```
+
+Automatic device selection uses XPU when the installed PyTorch build reports
+`torch.xpu.is_available()`. If no supported NVIDIA, AMD, or Intel accelerator is
+available, `--device auto` falls through to CPU. Explicit `--device xpu` remains
+strict and reports an error instead of silently falling back.
+
+Current restrictions:
+
+- Intel XPU runs require `--world-size 1`.
+- FP32 and `--profiling no-profiling` are required.
+- XPU data parallelism and XCCL are not enabled.
+- Intel hardware execution must be verified on a supported laptop.
 
 ## AMD Ryzen AI 7 350 and Radeon 860M
 
@@ -128,6 +159,11 @@ Verified in the current Windows test environment:
 - single-process AMD ROCm training
 - deterministic synthetic smoke data
 
+Implemented but awaiting supported Intel hardware verification:
+
+- single-process Intel XPU FP32 training
+- automatic fallback to CPU when no supported accelerator is available
+
 Legacy paths retained but not re-verified in this environment:
 
 - single-process NVIDIA CUDA training
@@ -135,7 +171,7 @@ Legacy paths retained but not re-verified in this environment:
 
 Not implemented in this tree:
 
-- Intel XPU execution
+- Intel XPU multi-process execution
 - AMD multi-process GPU execution
 - heterogeneous GPU-to-GPU collectives
 - `dist_1f1b_pipeline_async.py`

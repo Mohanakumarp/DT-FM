@@ -14,12 +14,15 @@ def resolve_device(args):
 
     hip_available = torch.cuda.is_available() and torch.version.hip is not None
     cuda_available = torch.cuda.is_available() and torch.version.hip is None
+    xpu_available = _xpu_available()
 
     if requested == 'auto':
         if hip_available:
             requested = 'rocm'
         elif cuda_available:
             requested = 'cuda'
+        elif xpu_available:
+            requested = 'xpu'
         else:
             requested = 'cpu'
 
@@ -39,7 +42,7 @@ def resolve_device(args):
         device = torch.device('cuda', args.cuda_id)
         backend = 'rocm' if hip_available else 'cuda'
     elif requested == 'xpu':
-        if not _xpu_available():
+        if not xpu_available:
             raise RuntimeError('--device xpu requires an Intel GPU-enabled PyTorch build')
         device = torch.device('xpu', args.cuda_id)
         backend = 'xpu'
@@ -48,17 +51,24 @@ def resolve_device(args):
 
     args.device_backend = backend
     args.use_cuda = device.type == 'cuda'
-    args.pin_memory = device.type != 'cpu'
+    # Keep the first XPU implementation conservative. Intel GPU transfers work
+    # without DataLoader pinning, and pinned-memory behavior differs by release.
+    args.pin_memory = backend in ('cuda', 'rocm')
     return device
 
 
 def validate_runtime_args(args, device):
-    if args.fp16 and device.type == 'cpu':
-        raise ValueError('--fp16 is not supported by the CPU pipeline; use FP32')
-    if args.profiling == 'tidy_profiling' and device.type == 'cpu':
-        raise ValueError('tidy profiling requires an accelerator; use --profiling no-profiling on CPU')
+    if args.fp16 and device.type in ('cpu', 'xpu'):
+        raise ValueError('--fp16 is not supported by the CPU/XPU pipeline; use FP32')
+    if args.profiling == 'tidy_profiling' and device.type != 'cuda':
+        raise ValueError('tidy profiling requires CUDA or ROCm; use --profiling no-profiling')
     if args.device_backend == 'xpu':
-        raise ValueError('Intel XPU execution is not implemented yet; use --device cpu')
+        if args.world_size != 1:
+            raise ValueError('Intel XPU currently supports only --world-size 1 in DT-FM')
+        if args.profiling != 'no-profiling':
+            raise ValueError('Intel XPU currently requires --profiling no-profiling')
+        if args.data_group_size != 1:
+            raise ValueError('Intel XPU data parallelism is not implemented')
     if args.device_backend == 'rocm' and args.world_size != 1:
         raise ValueError('ROCm currently supports only --world-size 1 in DT-FM')
     if device.type == 'cpu' and args.data_group_size != 1:
@@ -71,7 +81,10 @@ def describe_device(device, backend):
     if backend == 'cpu':
         return 'CPU'
     if backend == 'xpu':
-        return 'Intel XPU device {}'.format(device.index or 0)
+        index = device.index or 0
+        return 'Intel XPU device {} ({})'.format(
+            index, torch.xpu.get_device_name(index)
+        )
     name = torch.cuda.get_device_name(device.index or 0)
     if backend == 'rocm':
         return 'AMD ROCm device {} ({})'.format(device.index or 0, name)

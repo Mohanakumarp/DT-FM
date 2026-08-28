@@ -16,6 +16,13 @@ def _cupy_external_stream(torch_stream):
     return cupy.cuda.ExternalStream(torch_stream.cuda_stream)
 
 
+def _synchronize_device(device):
+    if device.type == 'cuda':
+        torch.cuda.synchronize(device)
+    elif device.type == 'xpu':
+        torch.xpu.synchronize(device)
+
+
 class GpipeAsync:
     r"""
     Async implementation of Gpipe.
@@ -469,8 +476,7 @@ class GpipeAsync:
             self.profiling_optimizer_step()
 
     def profiling_optimizer_step(self):
-        if self.use_accelerator_streams:
-            torch.cuda.synchronize(self.device)
+        _synchronize_device(self.device)
         if not self.use_dp:
             optimizer_slot = self.optimizer_start_event.elapsed_time(self.optimizer_end_event) * 1e+3
             optimizer_log = {"name": "opt", "ph": "X", "pid": self.global_rank, "tid": "7. optimizer-step",
@@ -517,8 +523,7 @@ class GpipeAsync:
                   .format(self.global_rank, step, self.gradient_accumulate_step, backward_slot))
         optimizer_time = time.time()
         self.optimizer_step()
-        if self.use_accelerator_streams:
-            torch.cuda.synchronize(self.device)
+        _synchronize_device(self.device)
         t_bar = time.time()
         self.comm.barrier()
         barrier_s += time.time() - t_bar
