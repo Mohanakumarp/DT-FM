@@ -127,10 +127,11 @@ Current restrictions:
 - DirectML data parallelism and distributed communication are not enabled.
 - Use CPU with Gloo for multi-laptop training.
 
-On the target Core i5-13450HX laptop, `torch-directml` selected Intel UHD and
-completed the DT-FM `GPTStageFull` forward pass, backward pass, and two SGD
-optimizer steps with process exit code 0. The integrated runner smoke command
-above must still be run after checking out this implementation.
+The integrated smoke test passed on the target Core i5-13450HX laptop with
+Intel UHD Graphics under WSL. The test used Python 3.11, PyTorch 2.4.1, FP32,
+and DirectML adapter index 1. It completed two DT-FM forward, backward, and SGD
+optimizer iterations, reduced the reported loss from 1.0619 to 0.9157, wrote
+the rank metrics file, and exited without a DirectML allocator error.
 
 ## AMD Ryzen AI 7 350 and Radeon 860M
 
@@ -211,12 +212,12 @@ Verified on the target Intel Core i5-13450HX laptop under WSL:
 
 - Intel UHD DirectML device enumeration with Python 3.11
 - DT-FM model forward, backward, and two optimizer steps on Intel UHD
+- integrated `dist_runner.py` DirectML smoke test with two iterations
 
 Implemented but awaiting supported Intel hardware verification:
 
 - single-process Intel XPU FP32 training
 - automatic fallback to CPU when no supported accelerator is available
-- integrated single-process Intel UHD DirectML runner
 
 Legacy paths retained but not re-verified in this environment:
 
