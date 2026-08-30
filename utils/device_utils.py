@@ -23,6 +23,16 @@ def _load_directml():
     return torch_directml
 
 
+def _uses_cpu_staged_gloo(args):
+    tensor_comm = getattr(args, 'tensor_comm', 'auto')
+    return (
+        args.world_size > 1
+        and tensor_comm == 'gloo'
+        and args.data_group_size == 1
+        and args.pipeline_group_size == args.world_size
+    )
+
+
 def resolve_device(args):
     """Resolve the requested compute backend and keep old CLI flags working."""
     requested = getattr(args, 'device', 'auto').lower()
@@ -103,28 +113,29 @@ def resolve_device(args):
 
 
 def validate_runtime_args(args, device):
+    cpu_staged_gloo = _uses_cpu_staged_gloo(args)
     if args.fp16 and args.device_backend in ('cpu', 'xpu', 'directml'):
         raise ValueError('--fp16 is not supported by the CPU/XPU/DirectML pipeline; use FP32')
+    if args.fp16 and cpu_staged_gloo:
+        raise ValueError('CPU-staged Gloo pipeline communication currently requires FP32')
     if args.profiling == 'tidy_profiling' and device.type != 'cuda':
         raise ValueError('tidy profiling requires CUDA or ROCm; use --profiling no-profiling')
     if args.device_backend == 'xpu':
-        if args.world_size != 1:
-            raise ValueError('Intel XPU currently supports only --world-size 1 in DT-FM')
+        if args.world_size != 1 and not cpu_staged_gloo:
+            raise ValueError('Intel XPU multi-process execution requires pipeline-only Gloo')
         if args.profiling != 'no-profiling':
             raise ValueError('Intel XPU currently requires --profiling no-profiling')
         if args.data_group_size != 1:
             raise ValueError('Intel XPU data parallelism is not implemented')
     if args.device_backend == 'directml':
-        if args.world_size != 1:
-            raise ValueError('DirectML currently supports only --world-size 1 in DT-FM')
-        if args.pipeline_group_size != 1:
-            raise ValueError('DirectML currently supports only --pipeline-group-size 1 in DT-FM')
+        if args.world_size != 1 and not cpu_staged_gloo:
+            raise ValueError('DirectML multi-process execution requires pipeline-only Gloo')
         if args.profiling != 'no-profiling':
             raise ValueError('DirectML currently requires --profiling no-profiling')
         if args.data_group_size != 1:
             raise ValueError('DirectML data parallelism is not implemented')
-    if args.device_backend == 'rocm' and args.world_size != 1:
-        raise ValueError('ROCm currently supports only --world-size 1 in DT-FM')
+    if args.device_backend == 'rocm' and args.world_size != 1 and not cpu_staged_gloo:
+        raise ValueError('ROCm multi-process execution requires pipeline-only Gloo')
     if device.type == 'cpu' and args.data_group_size != 1:
         raise ValueError('CPU mode currently supports pipeline parallelism only; set --data-group-size 1')
     if args.world_size != args.data_group_size * args.pipeline_group_size:

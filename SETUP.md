@@ -1,9 +1,9 @@
 # Device setup
 
-DT-FM can run its GPipe training path on CPU, NVIDIA CUDA, a single AMD ROCm
-device, a single Intel XPU device, or an experimental Intel UHD DirectML
-device. CPU is the portable distributed baseline. AMD and Intel accelerator
-support is currently limited to one process.
+DT-FM can run its GPipe training path on CPU, NVIDIA CUDA, AMD ROCm, Intel XPU,
+or Intel UHD DirectML. CPU is the portable distributed baseline. Accelerator
+data parallelism remains vendor-specific, while pipeline ranks can mix devices
+through CPU-staged Gloo communication.
 
 ## CPU on Windows
 
@@ -80,9 +80,9 @@ strict and reports an error instead of silently falling back.
 
 Current restrictions:
 
-- Intel XPU runs require `--world-size 1`.
 - FP32 and `--profiling no-profiling` are required.
 - XPU data parallelism and XCCL are not enabled.
+- Multi-process XPU is limited to pipeline-only CPU-staged Gloo.
 - Intel hardware execution must be verified on a supported laptop.
 
 ## Intel UHD graphics through DirectML on WSL
@@ -122,10 +122,10 @@ laptop must be explicit.
 Current restrictions:
 
 - DirectML requires Python 3.11 in this tested configuration.
-- DirectML runs require `--world-size 1` and `--pipeline-group-size 1`.
 - FP32 and `--profiling no-profiling` are required.
-- DirectML data parallelism and distributed communication are not enabled.
-- Use CPU with Gloo for multi-laptop training.
+- DirectML data parallelism is not enabled.
+- Multi-process DirectML is limited to pipeline-only CPU-staged Gloo and still
+  needs target-hardware verification.
 
 The integrated smoke test passed on the target Core i5-13450HX laptop with
 Intel UHD Graphics under WSL. The test used Python 3.11, PyTorch 2.4.1, FP32,
@@ -157,10 +157,51 @@ by checking `torch.version.hip`. CuPy NCCL is not loaded for this path.
 
 Current restrictions:
 
-- AMD runs require `--world-size 1`.
 - FP32 is the tested starting precision.
 - RCCL and DT-FM data parallelism are not enabled on Windows.
-- Use the CPU environment for multi-laptop training.
+- Multi-process ROCm is limited to pipeline-only CPU-staged Gloo.
+
+## Heterogeneous pipeline training with Gloo
+
+Different pipeline ranks can compute on CPU, NVIDIA CUDA, AMD ROCm, Intel XPU,
+or Intel UHD DirectML. Gloo sends activations and gradients as CPU tensors, so
+the ranks do not need a shared GPU collective backend. This is pipeline
+parallelism only. Set `--data-group-size 1`, use FP32, and select
+`--tensor-comm gloo` on every rank.
+
+The multi-laptop launcher accepts a separate `DEVICE` value on each machine.
+For a two-laptop synthetic smoke test, start rank 0 first:
+
+```bash
+DEVICE=cpu RANK=0 WORLD_SIZE=2 MASTER_IP=100.x.x.x \
+  SYNTHETIC_DATA=true ITERS=2 SKIP_PROBE=true \
+  bash scripts/run_rank.sh
+```
+
+On the Intel UHD laptop, activate its Python 3.11 DirectML environment and run:
+
+```bash
+DEVICE=directml DIRECTML_ID=1 EXPECTED_DIRECTML_NAME=Intel \
+  RANK=1 WORLD_SIZE=2 MASTER_IP=100.x.x.x \
+  SYNTHETIC_DATA=true ITERS=2 SKIP_PROBE=true \
+  bash scripts/run_rank.sh
+```
+
+Use `DEVICE=rocm`, `DEVICE=xpu`, or `DEVICE=cuda` on other accelerator ranks.
+Every rank must use identical model, batch, world-size, and pipeline-size
+arguments. Each machine may use its own device-specific Python environment.
+
+To exercise two devices on one Linux or WSL system, use the local launcher. Its
+defaults are CPU on rank 0 and DirectML on rank 1:
+
+```bash
+DIRECTML_ID=1 EXPECTED_DIRECTML_NAME=Intel \
+  bash scripts/run_mixed_local_smoke.sh
+```
+
+Set `RANK0_PYTHON`, `RANK1_PYTHON`, `RANK0_DEVICE`, and `RANK1_DEVICE` when the
+ranks need different interpreters or devices. A local CPU plus Radeon 860M run
+has completed two full forward, backward, and optimizer iterations successfully.
 
 ## NVIDIA CUDA (legacy path)
 
@@ -206,7 +247,9 @@ Verified in the current Windows test environment:
 - single-process CPU training
 - CPU pipeline parallelism over Gloo
 - single-process AMD ROCm training
+- mixed CPU and Radeon 860M pipeline training through CPU-staged Gloo
 - deterministic synthetic smoke data
+- automatic fallback to CPU when no supported accelerator is available
 
 Verified on the target Intel Core i5-13450HX laptop under WSL:
 
@@ -217,7 +260,8 @@ Verified on the target Intel Core i5-13450HX laptop under WSL:
 Implemented but awaiting supported Intel hardware verification:
 
 - single-process Intel XPU FP32 training
-- automatic fallback to CPU when no supported accelerator is available
+- mixed CPU and Intel UHD DirectML pipeline training through Gloo
+- mixed CPU and Intel XPU pipeline training through Gloo
 
 Legacy paths retained but not re-verified in this environment:
 
@@ -226,9 +270,7 @@ Legacy paths retained but not re-verified in this environment:
 
 Not implemented in this tree:
 
-- Intel XPU multi-process execution
-- Intel UHD DirectML multi-process execution
-- AMD multi-process GPU execution
 - heterogeneous GPU-to-GPU collectives
+- heterogeneous data parallelism
 - `dist_1f1b_pipeline_async.py`
 - `dist_gpipe_pipeline_async_offload.py`

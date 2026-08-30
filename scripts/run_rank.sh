@@ -14,14 +14,22 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+DEVICE="${DEVICE:-auto}"
 
 if [[ -z "${CONDA_PREFIX:-}" ]]; then
   # shellcheck disable=SC1091
   source "$(conda info --base)/etc/profile.d/conda.sh"
   conda activate "${DTFM_CONDA_ENV:-dtfm}"
 fi
-# shellcheck disable=SC1091
-source "${SCRIPT_DIR}/env.sh"
+if [[ "${DEVICE}" == "cuda" || "${DEVICE}" == "auto" ]]; then
+  # The legacy CUDA path needs its CuPy/NCCL library setup. Loading those
+  # libraries in ROCm, XPU, or DirectML environments can initialize the wrong
+  # accelerator runtime.
+  # shellcheck disable=SC1091
+  source "${SCRIPT_DIR}/env.sh"
+else
+  export DTFM_ROOT="${ROOT}"
+fi
 cd "${ROOT}"
 mkdir -p logs
 
@@ -36,6 +44,10 @@ EPOCHS="${EPOCHS:-0}"
 STEPS_PER_EPOCH="${STEPS_PER_EPOCH:-0}"
 PROFILE="${PROFILE:-tiny}"
 TENSOR_COMM="${TENSOR_COMM:-gloo}"
+EXPECTED_DIRECTML_NAME="${EXPECTED_DIRECTML_NAME:-Intel}"
+SYNTHETIC_DATA="${SYNTHETIC_DATA:-false}"
+SYNTHETIC_SAMPLES="${SYNTHETIC_SAMPLES:-32}"
+SYNTHETIC_VOCAB_SIZE="${SYNTHETIC_VOCAB_SIZE:-2048}"
 SEQ="${SEQ:-64}"
 EMBED="${EMBED:-128}"
 LAYERS="${LAYERS:-2}"
@@ -89,23 +101,28 @@ if [[ "${RANK}" == "0" ]]; then
   echo "[run_rank] log hub on ${MASTER_IP}:${LOG_PORT}  (live: tail -F logs/all_ranks.log)"
   echo "[run_rank] start the other laptops with:"
   for ((r=1; r<WORLD_SIZE; r++)); do
-    echo "  RANK=${r} MASTER_IP=${MASTER_IP} WORLD_SIZE=${WORLD_SIZE} PROFILE=${PROFILE} EPOCHS=${EPOCHS} STEPS_PER_EPOCH=${STEPS_PER_EPOCH} ITERS=${ITERS} BATCH=${BATCH:-8} MICRO=${MICRO:-2} SKIP_PROBE=${SKIP_PROBE:-true} bash scripts/run_rank.sh"
+    echo "  DEVICE=<device-for-rank-${r}> RANK=${r} MASTER_IP=${MASTER_IP} WORLD_SIZE=${WORLD_SIZE} PROFILE=${PROFILE} EPOCHS=${EPOCHS} STEPS_PER_EPOCH=${STEPS_PER_EPOCH} ITERS=${ITERS} BATCH=${BATCH:-8} MICRO=${MICRO:-2} SKIP_PROBE=${SKIP_PROBE:-true} bash scripts/run_rank.sh"
   done
 fi
 
-echo "[run_rank] rank=${RANK}/${WORLD_SIZE} master=${MASTER_IP}:${PORT} profile=${PROFILE} epochs=${EPOCHS} spe=${STEPS_PER_EPOCH} iters=${ITERS} iface=${GLOO_SOCKET_IFNAME}"
+echo "[run_rank] rank=${RANK}/${WORLD_SIZE} device=${DEVICE} master=${MASTER_IP}:${PORT} profile=${PROFILE} synthetic=${SYNTHETIC_DATA} epochs=${EPOCHS} spe=${STEPS_PER_EPOCH} iters=${ITERS} iface=${GLOO_SOCKET_IFNAME}"
 
 python -u dist_runner.py \
-  --use-cuda true \
+  --device "${DEVICE}" \
   --cuda-id "${CUDA_ID:-0}" \
+  --directml-id "${DIRECTML_ID:-0}" \
+  --directml-expected-name "${EXPECTED_DIRECTML_NAME}" \
   --cuda-num 1 \
-  --dist-backend cupy_nccl \
+  --dist-backend gloo \
   --tensor-comm "${TENSOR_COMM}" \
   --dist-url "tcp://${MASTER_IP}:${PORT}" \
   --world-size "${WORLD_SIZE}" \
   --pipeline-group-size "${PP_SIZE}" \
   --data-group-size "${DP_SIZE}" \
   --rank "${RANK}" \
+  --synthetic-data "${SYNTHETIC_DATA}" \
+  --synthetic-samples "${SYNTHETIC_SAMPLES}" \
+  --synthetic-vocab-size "${SYNTHETIC_VOCAB_SIZE}" \
   --seq-length "${SEQ}" \
   --embedding-dim "${EMBED}" \
   --num-layers "${LAYERS}" \

@@ -68,7 +68,12 @@ class GpipeAsync:
         self.enable_tidy_profiling = (args.profiling == 'tidy_profiling')
         self.last_loss = None
         self.device = device
-        self.use_accelerator_streams = device.type == 'cuda'
+        # Gloo stages tensors through CPU memory and ignores CUDA/CuPy streams.
+        # The synchronous path also keeps ROCm out of the CuPy CUDA backend.
+        self.use_accelerator_streams = (
+            device.type == 'cuda'
+            and not isinstance(self.comm, GlooTensorCommunicator)
+        )
         if self.use_accelerator_streams:
             self.torch_comp_stream = torch.cuda.default_stream(device=device)
             self.torch_recv_stream = torch.cuda.Stream(device=device, priority=-1)

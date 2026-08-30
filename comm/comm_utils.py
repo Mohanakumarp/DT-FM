@@ -16,8 +16,8 @@ class GlooTensorCommunicator:
     """
     CPU-staged tensor send/recv over the existing Gloo process group.
 
-    This is for same-machine / WSL multi-process tests when CuPy NCCL cannot
-    initialize. Real multi-GPU DT-FM runs should keep using NCCLCommunicator.
+    This supports local tests, CPU clusters, and heterogeneous pipeline ranks.
+    Homogeneous NVIDIA deployments can keep using NCCLCommunicator.
     """
 
     def __init__(self, comm_rank, comm_group_size, comm_name, world_rank_base=0):
@@ -183,6 +183,11 @@ def _synchronize_tensor(tensor):
         torch.cuda.synchronize(tensor.device)
     elif tensor.device.type == 'xpu':
         torch.xpu.synchronize(tensor.device)
+    elif tensor.device.type == 'privateuseone':
+        # DirectML has no public synchronize call. Reading an existing scalar
+        # waits for the queued copy without allocating another device tensor.
+        if tensor.numel() > 0:
+            tensor.detach().reshape(-1)[0].item()
 
 
 def default_init(args):
