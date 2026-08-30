@@ -124,8 +124,8 @@ Current restrictions:
 - DirectML requires Python 3.11 in this tested configuration.
 - FP32 and `--profiling no-profiling` are required.
 - DirectML data parallelism is not enabled.
-- Multi-process DirectML is limited to pipeline-only CPU-staged Gloo and still
-  needs target-hardware verification.
+- Multi-process DirectML is limited to pipeline-only CPU-staged Gloo. Local
+  mixed-device execution is verified; a physical multi-laptop run is not.
 
 The integrated smoke test passed on the target Core i5-13450HX laptop with
 Intel UHD Graphics under WSL. The test used Python 3.11, PyTorch 2.4.1, FP32,
@@ -203,6 +203,12 @@ Set `RANK0_PYTHON`, `RANK1_PYTHON`, `RANK0_DEVICE`, and `RANK1_DEVICE` when the
 ranks need different interpreters or devices. A local CPU plus Radeon 860M run
 has completed two full forward, backward, and optimizer iterations successfully.
 
+The target Core i5-13450HX laptop also passed this local launcher with its CPU
+on rank 0 and Intel UHD DirectML adapter 1 on rank 1. Both ranks completed two
+forward, backward, and optimizer iterations, wrote metrics, and exited cleanly.
+The first iteration took about seven seconds while DirectML initialized; the
+second iteration took about 0.03 seconds.
+
 ## NVIDIA CUDA (legacy path)
 
 The original CUDA 11 setup remains in the repository, but it was not re-tested
@@ -256,11 +262,11 @@ Verified on the target Intel Core i5-13450HX laptop under WSL:
 - Intel UHD DirectML device enumeration with Python 3.11
 - DT-FM model forward, backward, and two optimizer steps on Intel UHD
 - integrated `dist_runner.py` DirectML smoke test with two iterations
+- mixed CPU and Intel UHD DirectML pipeline training through CPU-staged Gloo
 
 Implemented but awaiting supported Intel hardware verification:
 
 - single-process Intel XPU FP32 training
-- mixed CPU and Intel UHD DirectML pipeline training through Gloo
 - mixed CPU and Intel XPU pipeline training through Gloo
 
 Legacy paths retained but not re-verified in this environment:
