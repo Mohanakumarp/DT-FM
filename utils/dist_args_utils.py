@@ -1,10 +1,12 @@
 def add_device_arguments(parser):
-    parser.add_argument('--device', choices=['auto', 'cpu', 'cuda', 'rocm', 'xpu'], default='auto',
+    parser.add_argument('--device', choices=['auto', 'cpu', 'cuda', 'rocm', 'xpu', 'directml'], default='auto',
                         help='compute device (default: auto)')
     parser.add_argument('--use-cuda', default=None, type=lambda x: (str(x).lower() == 'true'),
                         help='deprecated compatibility flag; prefer --device')
     parser.add_argument('--cuda-id', type=int, default=0, metavar='N',
                         help='cuda index, if the instance has multiple GPUs.')
+    parser.add_argument('--directml-id', type=int, default=0, metavar='N',
+                        help='DirectML adapter index for experimental Intel UHD support.')
     parser.add_argument('--cuda-num', type=int, default=1, metavar='N',
                         help='number of GPUs, if the instance has multiple GPUs.')
     parser.add_argument('--debug-mem', default=True, type=lambda x: (str(x).lower() == 'true'),

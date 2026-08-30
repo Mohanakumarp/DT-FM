@@ -1,8 +1,26 @@
+import sys
+
 import torch
 
 
 def _xpu_available():
     return hasattr(torch, 'xpu') and torch.xpu.is_available()
+
+
+def _load_directml():
+    if sys.version_info[:2] != (3, 11):
+        raise RuntimeError(
+            '--device directml requires Python 3.11; current interpreter is {}'.format(
+                sys.version.split()[0]
+            )
+        )
+    try:
+        import torch_directml
+    except ImportError:
+        raise RuntimeError(
+            '--device directml requires torch-directml in a separate Python 3.11 environment'
+        )
+    return torch_directml
 
 
 def resolve_device(args):
@@ -46,6 +64,18 @@ def resolve_device(args):
             raise RuntimeError('--device xpu requires an Intel GPU-enabled PyTorch build')
         device = torch.device('xpu', args.cuda_id)
         backend = 'xpu'
+    elif requested == 'directml':
+        torch_directml = _load_directml()
+        directml_id = getattr(args, 'directml_id', 0)
+        device_count = torch_directml.device_count()
+        if directml_id < 0 or directml_id >= device_count:
+            raise RuntimeError(
+                '--directml-id {} is invalid; DirectML reports {} device(s)'.format(
+                    directml_id, device_count
+                )
+            )
+        device = torch_directml.device(directml_id)
+        backend = 'directml'
     else:
         raise ValueError('Unknown --device value: ' + requested)
 
@@ -58,8 +88,8 @@ def resolve_device(args):
 
 
 def validate_runtime_args(args, device):
-    if args.fp16 and device.type in ('cpu', 'xpu'):
-        raise ValueError('--fp16 is not supported by the CPU/XPU pipeline; use FP32')
+    if args.fp16 and args.device_backend in ('cpu', 'xpu', 'directml'):
+        raise ValueError('--fp16 is not supported by the CPU/XPU/DirectML pipeline; use FP32')
     if args.profiling == 'tidy_profiling' and device.type != 'cuda':
         raise ValueError('tidy profiling requires CUDA or ROCm; use --profiling no-profiling')
     if args.device_backend == 'xpu':
@@ -69,6 +99,15 @@ def validate_runtime_args(args, device):
             raise ValueError('Intel XPU currently requires --profiling no-profiling')
         if args.data_group_size != 1:
             raise ValueError('Intel XPU data parallelism is not implemented')
+    if args.device_backend == 'directml':
+        if args.world_size != 1:
+            raise ValueError('DirectML currently supports only --world-size 1 in DT-FM')
+        if args.pipeline_group_size != 1:
+            raise ValueError('DirectML currently supports only --pipeline-group-size 1 in DT-FM')
+        if args.profiling != 'no-profiling':
+            raise ValueError('DirectML currently requires --profiling no-profiling')
+        if args.data_group_size != 1:
+            raise ValueError('DirectML data parallelism is not implemented')
     if args.device_backend == 'rocm' and args.world_size != 1:
         raise ValueError('ROCm currently supports only --world-size 1 in DT-FM')
     if device.type == 'cpu' and args.data_group_size != 1:
@@ -84,6 +123,12 @@ def describe_device(device, backend):
         index = device.index or 0
         return 'Intel XPU device {} ({})'.format(
             index, torch.xpu.get_device_name(index)
+        )
+    if backend == 'directml':
+        torch_directml = _load_directml()
+        index = device.index or 0
+        return 'DirectML device {} ({})'.format(
+            index, torch_directml.device_name(index)
         )
     name = torch.cuda.get_device_name(device.index or 0)
     if backend == 'rocm':

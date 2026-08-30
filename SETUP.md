@@ -1,8 +1,9 @@
 # Device setup
 
 DT-FM can run its GPipe training path on CPU, NVIDIA CUDA, a single AMD ROCm
-device, or a single Intel XPU device. CPU is the portable distributed baseline.
-AMD and Intel accelerator support is currently limited to one process.
+device, a single Intel XPU device, or an experimental Intel UHD DirectML
+device. CPU is the portable distributed baseline. AMD and Intel accelerator
+support is currently limited to one process.
 
 ## CPU on Windows
 
@@ -84,6 +85,50 @@ Current restrictions:
 - XPU data parallelism and XCCL are not enabled.
 - Intel hardware execution must be verified on a supported laptop.
 
+## Intel UHD graphics through DirectML on WSL
+
+Intel UHD graphics such as the UHD unit paired with the Core i5-13450HX are
+not supported by the native PyTorch XPU path above. On a Windows laptop, WSL
+can instead use Microsoft's `torch-directml` backend. Keep it in a separate
+environment from the existing CUDA environment.
+
+This package had an import-time failure with Python 3.8 during target-laptop
+testing. Use Python 3.11:
+
+```bash
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda create -n dtfm-directml311 python=3.11 -y
+conda activate dtfm-directml311
+bash scripts/setup_intel_uhd_directml.sh
+```
+
+The setup lists every DirectML adapter. On a hybrid NVIDIA plus Intel laptop,
+do not assume index 0 is Intel. The tested laptop reported NVIDIA at index 0
+and Intel UHD at index 1. Run the integrated smoke test with the Intel index:
+
+```bash
+DIRECTML_ID=1 EXPECTED_DIRECTML_NAME=Intel \
+  bash scripts/run_intel_uhd_directml_smoke.sh
+```
+
+The adapter-name guard stops the test if the selected index is not Intel. The
+runner can also be invoked directly with `--device directml --directml-id 1`.
+DirectML is deliberately excluded from `--device auto`, because choosing the
+correct adapter on a hybrid laptop must be explicit.
+
+Current restrictions:
+
+- DirectML requires Python 3.11 in this tested configuration.
+- DirectML runs require `--world-size 1` and `--pipeline-group-size 1`.
+- FP32 and `--profiling no-profiling` are required.
+- DirectML data parallelism and distributed communication are not enabled.
+- Use CPU with Gloo for multi-laptop training.
+
+On the target Core i5-13450HX laptop, `torch-directml` selected Intel UHD and
+completed the DT-FM `GPTStageFull` forward pass, backward pass, and two SGD
+optimizer steps with process exit code 0. The integrated runner smoke command
+above must still be run after checking out this implementation.
+
 ## AMD Ryzen AI 7 350 and Radeon 860M
 
 The Radeon 860M uses the `gfx1152` target. AMD publishes device-specific
@@ -159,10 +204,16 @@ Verified in the current Windows test environment:
 - single-process AMD ROCm training
 - deterministic synthetic smoke data
 
+Verified on the target Intel Core i5-13450HX laptop under WSL:
+
+- Intel UHD DirectML device enumeration with Python 3.11
+- DT-FM model forward, backward, and two optimizer steps on Intel UHD
+
 Implemented but awaiting supported Intel hardware verification:
 
 - single-process Intel XPU FP32 training
 - automatic fallback to CPU when no supported accelerator is available
+- integrated single-process Intel UHD DirectML runner
 
 Legacy paths retained but not re-verified in this environment:
 
@@ -172,6 +223,7 @@ Legacy paths retained but not re-verified in this environment:
 Not implemented in this tree:
 
 - Intel XPU multi-process execution
+- Intel UHD DirectML multi-process execution
 - AMD multi-process GPU execution
 - heterogeneous GPU-to-GPU collectives
 - `dist_1f1b_pipeline_async.py`

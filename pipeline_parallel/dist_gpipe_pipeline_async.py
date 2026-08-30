@@ -21,6 +21,10 @@ def _synchronize_device(device):
         torch.cuda.synchronize(device)
     elif device.type == 'xpu':
         torch.xpu.synchronize(device)
+    elif device.type == 'privateuseone':
+        # DirectML queues work asynchronously but does not expose a public
+        # synchronize API. Reading a device scalar waits for queued work.
+        torch.zeros(1, device=device).item()
 
 
 class GpipeAsync:
