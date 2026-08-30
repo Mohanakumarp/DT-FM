@@ -30,9 +30,15 @@ def resolve_device(args):
     if requested == 'auto' and legacy_use_cuda is not None:
         requested = 'cuda' if legacy_use_cuda else 'cpu'
 
-    hip_available = torch.cuda.is_available() and torch.version.hip is not None
-    cuda_available = torch.cuda.is_available() and torch.version.hip is None
-    xpu_available = _xpu_available()
+    hip_available = False
+    cuda_available = False
+    xpu_available = False
+    if requested in ('auto', 'rocm', 'cuda'):
+        cuda_api_available = torch.cuda.is_available()
+        hip_available = cuda_api_available and torch.version.hip is not None
+        cuda_available = cuda_api_available and torch.version.hip is None
+    if requested in ('auto', 'xpu'):
+        xpu_available = _xpu_available()
 
     if requested == 'auto':
         if hip_available:
@@ -55,7 +61,7 @@ def resolve_device(args):
         device = torch.device('cuda', args.cuda_id)
         backend = 'rocm'
     elif requested == 'cuda':
-        if not torch.cuda.is_available():
+        if not (cuda_available or hip_available):
             raise RuntimeError('--device cuda requires an available CUDA or ROCm device')
         device = torch.device('cuda', args.cuda_id)
         backend = 'rocm' if hip_available else 'cuda'
@@ -74,6 +80,15 @@ def resolve_device(args):
                     directml_id, device_count
                 )
             )
+        directml_name = torch_directml.device_name(directml_id)
+        expected_name = getattr(args, 'directml_expected_name', None)
+        if expected_name and expected_name.lower() not in directml_name.lower():
+            raise RuntimeError(
+                "DirectML adapter {} is '{}', not the expected '{}'".format(
+                    directml_id, directml_name, expected_name
+                )
+            )
+        args.directml_name = directml_name
         device = torch_directml.device(directml_id)
         backend = 'directml'
     else:
@@ -116,7 +131,7 @@ def validate_runtime_args(args, device):
         raise ValueError('world-size must equal data-group-size times pipeline-group-size')
 
 
-def describe_device(device, backend):
+def describe_device(device, backend, directml_name=None):
     if backend == 'cpu':
         return 'CPU'
     if backend == 'xpu':
@@ -125,11 +140,10 @@ def describe_device(device, backend):
             index, torch.xpu.get_device_name(index)
         )
     if backend == 'directml':
-        torch_directml = _load_directml()
         index = device.index or 0
-        return 'DirectML device {} ({})'.format(
-            index, torch_directml.device_name(index)
-        )
+        if directml_name:
+            return 'DirectML device {} ({})'.format(index, directml_name)
+        return 'DirectML device {}'.format(index)
     name = torch.cuda.get_device_name(device.index or 0)
     if backend == 'rocm':
         return 'AMD ROCm device {} ({})'.format(device.index or 0, name)

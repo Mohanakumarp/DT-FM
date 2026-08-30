@@ -111,10 +111,13 @@ DIRECTML_ID=1 EXPECTED_DIRECTML_NAME=Intel \
   bash scripts/run_intel_uhd_directml_smoke.sh
 ```
 
-The adapter-name guard stops the test if the selected index is not Intel. The
-runner can also be invoked directly with `--device directml --directml-id 1`.
-DirectML is deliberately excluded from `--device auto`, because choosing the
-correct adapter on a hybrid laptop must be explicit.
+The runner checks the adapter name before it opens the DirectML device, so the
+test stops if the selected index is not Intel. It performs adapter selection
+and DT-FM training in one Python process to avoid holding two DirectML contexts
+in quick succession. A direct invocation can use `--device directml
+--directml-id 1 --directml-expected-name Intel`. DirectML is deliberately
+excluded from `--device auto`, because choosing the correct adapter on a hybrid
+laptop must be explicit.
 
 Current restrictions:
 

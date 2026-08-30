@@ -115,7 +115,9 @@ def run_training(args):
     torch.manual_seed(args.seed)
     device = resolve_device(args)
     validate_runtime_args(args, device)
-    print('==== Compute device:', describe_device(device, args.device_backend))
+    print('==== Compute device:', describe_device(
+        device, args.device_backend, getattr(args, 'directml_name', None)
+    ))
 
     init_communicators(args)
 
