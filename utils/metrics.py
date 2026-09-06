@@ -114,4 +114,8 @@ class RunMetrics:
         header = '     ' + ''.join('{:>8d}'.format(j) for j in range(len(mat)))
         print(header)
         for i, row in enumerate(mat):
-            print('{:>4d} '.format(i) + ''.join(fmt.format(x) for x in row))
+            cells = [
+                fmt.format(x) if x is not None else '{:>8s}'.format('n/a')
+                for x in row
+            ]
+            print('{:>4d} '.format(i) + ''.join(cells))

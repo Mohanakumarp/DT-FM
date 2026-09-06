@@ -25,6 +25,39 @@ runs a deterministic synthetic training iteration. Run the tests again with:
 The two-rank test starts both processes locally and sends activations and
 gradients through Gloo.
 
+The probe tests use the standard-library test runner in a configured DT-FM
+environment, so they add no package dependency:
+
+```powershell
+python -m unittest discover -s tests -v
+```
+
+To verify saved matrices and training with two or three local CPU ranks, use
+the CPU environment's Python interpreter:
+
+```powershell
+.\.venv-cpu\Scripts\python.exe scripts/verify_comm_probe.py --world-size 2
+.\.venv-cpu\Scripts\python.exe scripts/verify_comm_probe.py --world-size 3
+.\.venv-cpu\Scripts\python.exe scripts/verify_comm_probe.py --world-size 3 --occupy-probe-rank 1
+```
+
+On Linux or WSL, run the same script with `python` from the CPU environment.
+Run these commands sequentially because the probe uses TCP ports 9200 through
+9202. Each run creates a fresh temporary artifact directory, checks that every
+rank completes two optimizer steps and saves identical matrices, and stops its
+workers after 90 seconds if they fail to finish. The last command deliberately
+occupies rank 1's probe port. Measurements to that listener must be `null`,
+while the other pairs and Gloo training must still succeed. A passed run writes
+`verification.json` beside the per-rank logs and metrics.
+
+The matrices retain separate observations initiated by each source rank.
+`latency_ms` is full round-trip time; `bandwidth_mbps` is an echo-based estimate
+calculated using half the round-trip duration. They do not isolate one-way WAN
+bandwidth or accelerator transfer costs. Missing or failed measurements are
+JSON `null`, displayed as `n/a`; only self-links are zero. Physical multi-laptop
+and WAN verification remains outstanding. This handles probe socket failures,
+not lost training workers or failed process groups.
+
 ## CPU on Linux or WSL
 
 Create a virtual environment and install the CPU build of PyTorch:
