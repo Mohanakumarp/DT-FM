@@ -41,3 +41,7 @@ trace_json/*.json
 *.pth
 *.onnx
 core
+mlflow.db*
+mlartifacts/
+mlruns/
+logs/mlflow-demo/

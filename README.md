@@ -11,6 +11,9 @@ This is a research project developed by [DS3Lab@ETH Zurich](https://ds3lab.inf.e
 
 ## Local setup
 
+For browser-visible training curves, experiment comparisons, and per-rank
+measurements, see the optional [MLflow demonstration](./MLFLOW_DEMO.md).
+
 The portable starting point is CPU training on Windows, Linux, or WSL. On
 Windows, from the repository root:
 

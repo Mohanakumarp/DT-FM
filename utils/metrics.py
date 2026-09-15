@@ -5,8 +5,9 @@ import time
 
 
 class RunMetrics:
-    def __init__(self, args):
+    def __init__(self, args, tracker=None):
         self.args = args
+        self.tracker = tracker
         self.t0 = time.time()
         self.marks = {'start': self.t0}
         self.iters = []
@@ -26,9 +27,18 @@ class RunMetrics:
         if not isinstance(stats, dict):
             stats = {'iter_s': float(stats)}
         self.iters.append(stats)
+        if self.tracker is not None:
+            values = dict(stats)
+            seconds = stats.get('iter_s', 0.0)
+            if seconds > 0:
+                values['samples_per_second'] = self.args.batch_size / seconds
+            self.tracker.log_metrics(values, step=len(self.iters), synchronous=True)
 
     def record_loss(self, value):
         self.losses.append(float(value))
+        if self.tracker is not None:
+            self.tracker.log_metric('last_microbatch_loss', float(value),
+                                    step=len(self.iters), synchronous=True)
 
     def set_comm_matrix(self, latency_ms, bandwidth_mbps, peers):
         self.latency_ms = latency_ms
@@ -88,6 +98,12 @@ class RunMetrics:
             json.dump(payload, fh, indent=2)
         print('[metrics] wrote', path)
         self.print_tables(payload)
+        if self.tracker is not None:
+            self.tracker.log_metrics({
+                'completed_steps': len(self.iters),
+                'training_wall_seconds': payload['wall_clock_s']['training'],
+            }, synchronous=True)
+            self.tracker.log_artifact(path, artifact_path='measurements')
         return payload
 
     def print_tables(self, payload):

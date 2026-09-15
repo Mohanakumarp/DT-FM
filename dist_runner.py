@@ -14,6 +14,7 @@ from utils.dist_train_utils import *
 from comm.comm_utils import *
 from comm.comm_probe import measure_comm_matrix
 from utils.metrics import RunMetrics
+from utils.mlflow_tracking import add_tracking_arguments, tracked_run
 from utils.device_utils import describe_device, resolve_device, validate_runtime_args
 
 
@@ -87,6 +88,7 @@ def main():
     add_training_hyper_parameter_arguments(parser)
     add_mixed_precision_arguments(parser)
     add_parallel_schema_arguments(parser)
+    add_tracking_arguments(parser)
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
     parser.add_argument('--profiling', type=str, default='no-profiling', metavar='S',
@@ -112,6 +114,11 @@ def main():
 
 
 def run_training(args):
+    with tracked_run(args) as tracker:
+        _run_training(args, tracker)
+
+
+def _run_training(args, tracker):
     torch.manual_seed(args.seed)
     device = resolve_device(args)
     validate_runtime_args(args, device)
@@ -147,7 +154,9 @@ def run_training(args):
     n_params = sum(p.numel() for p in pipe.model.parameters())
     print("Rank", args.rank, "stage params:", n_params)
 
-    metrics = RunMetrics(args)
+    metrics = RunMetrics(args, tracker=tracker)
+    if tracker is not None:
+        tracker.log_params({'stage_parameters': n_params, 'resolved_device': str(device)})
     # First/last ranks load all of QQP (~minutes). The middle rank skips the
     # dataset and used to enter the blocking comm probe immediately, so Gloo
     # send/recv hung until the 30min timeout. Wait here so every rank has
