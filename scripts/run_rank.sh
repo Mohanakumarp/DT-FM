@@ -16,11 +16,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 DEVICE="${DEVICE:-auto}"
 
-if [[ -z "${CONDA_PREFIX:-}" ]]; then
+if [[ -z "${PYTHON:-}" && -z "${CONDA_PREFIX:-}" ]]; then
   # shellcheck disable=SC1091
   source "$(conda info --base)/etc/profile.d/conda.sh"
   conda activate "${DTFM_CONDA_ENV:-dtfm}"
 fi
+PYTHON="${PYTHON:-python}"
 if [[ "${DEVICE}" == "cuda" || "${DEVICE}" == "auto" ]]; then
   # The legacy CUDA path needs its CuPy/NCCL library setup. Loading those
   # libraries in ROCm, XPU, or DirectML environments can initialize the wrong
@@ -31,7 +32,8 @@ else
   export DTFM_ROOT="${ROOT}"
 fi
 cd "${ROOT}"
-mkdir -p logs
+LOG_DIR="${LOG_DIR:-logs}"
+mkdir -p "${LOG_DIR}"
 
 RANK="${RANK:?set RANK=0, 1, or 2}"
 WORLD_SIZE="${WORLD_SIZE:-3}"
@@ -78,7 +80,10 @@ fi
 # env.sh defaults GLOO to lo for local smokes. Multi-laptop runs must use
 # tailscale0 or the peer cannot connect to MASTER_IP.
 if [[ "${DTFM_LOCAL:-0}" == "1" ]]; then
-  export GLOO_SOCKET_IFNAME=lo
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) unset GLOO_SOCKET_IFNAME ;;
+    *) export GLOO_SOCKET_IFNAME=lo ;;
+  esac
 elif [[ -d /sys/class/net/tailscale0 ]]; then
   export GLOO_SOCKET_IFNAME=tailscale0
 else
@@ -95,19 +100,19 @@ cleanup() {
 trap cleanup EXIT
 
 if [[ "${RANK}" == "0" ]]; then
-  python -u "${SCRIPT_DIR}/log_hub.py" --port "${LOG_PORT}" --out logs/all_ranks.log &
+  "${PYTHON}" -u "${SCRIPT_DIR}/log_hub.py" --port "${LOG_PORT}" --out "${LOG_DIR}/all_ranks.log" &
   HUB_PID=$!
   sleep 0.4
-  echo "[run_rank] log hub on ${MASTER_IP}:${LOG_PORT}  (live: tail -F logs/all_ranks.log)"
+  echo "[run_rank] log hub on ${MASTER_IP}:${LOG_PORT}  (live: tail -F ${LOG_DIR}/all_ranks.log)"
   echo "[run_rank] start the other laptops with:"
   for ((r=1; r<WORLD_SIZE; r++)); do
     echo "  DEVICE=<device-for-rank-${r}> RANK=${r} MASTER_IP=${MASTER_IP} WORLD_SIZE=${WORLD_SIZE} PROFILE=${PROFILE} EPOCHS=${EPOCHS} STEPS_PER_EPOCH=${STEPS_PER_EPOCH} ITERS=${ITERS} BATCH=${BATCH:-8} MICRO=${MICRO:-2} SKIP_PROBE=${SKIP_PROBE:-true} bash scripts/run_rank.sh"
   done
 fi
 
-echo "[run_rank] rank=${RANK}/${WORLD_SIZE} device=${DEVICE} master=${MASTER_IP}:${PORT} profile=${PROFILE} synthetic=${SYNTHETIC_DATA} epochs=${EPOCHS} spe=${STEPS_PER_EPOCH} iters=${ITERS} iface=${GLOO_SOCKET_IFNAME}"
+echo "[run_rank] rank=${RANK}/${WORLD_SIZE} device=${DEVICE} master=${MASTER_IP}:${PORT} profile=${PROFILE} synthetic=${SYNTHETIC_DATA} epochs=${EPOCHS} spe=${STEPS_PER_EPOCH} iters=${ITERS} iface=${GLOO_SOCKET_IFNAME:-auto}"
 
-python -u dist_runner.py \
+"${PYTHON}" -u dist_runner.py \
   --device "${DEVICE}" \
   --cuda-id "${CUDA_ID:-0}" \
   --directml-id "${DIRECTML_ID:-0}" \
@@ -132,7 +137,7 @@ python -u dist_runner.py \
   --num-iters "${ITERS}" \
   --num-epochs "${EPOCHS}" \
   --steps-per-epoch "${STEPS_PER_EPOCH}" \
-  --metrics-dir ./logs \
+  --metrics-dir "${LOG_DIR}" \
   --skip-comm-probe "${SKIP_PROBE:-true}" \
   --train-data ./task_datasets/data/QQP/train.tsv \
   --valid-data ./task_datasets/data/QQP/dev.tsv \
@@ -142,7 +147,7 @@ python -u dist_runner.py \
   --dp-mode allreduce \
   --use-offload false \
   --profiling no-profiling \
-  2>&1 | python -u "${SCRIPT_DIR}/log_tee.py" \
+  2>&1 | "${PYTHON}" -u "${SCRIPT_DIR}/log_tee.py" \
       --rank "${RANK}" \
       --hub "${MASTER_IP}:${LOG_PORT}" \
-      --file "logs/rank${RANK}.log"
+      --file "${LOG_DIR}/rank${RANK}.log"
