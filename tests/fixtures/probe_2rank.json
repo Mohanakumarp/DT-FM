@@ -1,0 +1,7 @@
+{
+  "passed": true,
+  "world_size": 2,
+  "scope": "synthetic fixture",
+  "latency_ms": [[0.0, 1.25], [2.5, 0.0]],
+  "bandwidth_mbps": [[0.0, 125.0], [80.0, 0.0]]
+}
