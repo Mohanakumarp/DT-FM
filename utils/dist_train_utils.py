@@ -75,6 +75,9 @@ def distributed_train_foo_iter(args, pipeline, device, train_data_loader, metric
         if completed > 0:
             total_time += last_iter_time
         completed += 1
+        if getattr(args, 'rebalance_every', 0):
+            from scheduler.rebalance import maybe_rebalance
+            maybe_rebalance(args, pipeline, completed, steps_budget, metrics)
 
     if is_first and is_last:
         for epoch in range(epochs):

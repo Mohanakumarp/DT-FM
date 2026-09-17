@@ -60,6 +60,24 @@ def add_qqp_task_arguments(parser):
 
 
 def add_model_arguments(parser):
+    parser.add_argument('--rebalance-every', type=int, default=0,
+                        help='recheck live resources every N completed steps; 0 disables migration')
+    parser.add_argument('--rebalance-min-improvement', type=float, default=.1,
+                        help='minimum estimated compute-time reduction before migrating layers')
+    parser.add_argument('--dynamic-total-layers', type=int, default=None,
+                        help='discover live resources and allocate this many total layers at startup')
+    parser.add_argument('--scheduler-memory-fraction', type=float, default=.7,
+                        help='fraction of currently available memory usable by the scheduler')
+    parser.add_argument('--scheduler-reserve-mb', type=int, default=256,
+                        help='additional memory headroom per shared pool, in MiB')
+    parser.add_argument('--scheduler-warmup', type=int, default=1)
+    parser.add_argument('--scheduler-repeats', type=int, default=3)
+    parser.add_argument('--scheduler-host-id', default=None,
+                        help='shared physical host identity for containers; default hostname')
+    parser.add_argument('--stage-layers', default=None,
+                        help='complete comma-separated transformer layer counts in launch rank order')
+    parser.add_argument('--schedule-vocab-size', type=int, default=0,
+                        help='expected vocabulary size of the compute profile; 0 disables this check')
     parser.add_argument('--seq-length', type=int, default=2048, metavar='N',
                         help='-')
     parser.add_argument('--embedding-dim', type=int, default=768, metavar='N',

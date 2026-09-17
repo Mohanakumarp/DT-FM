@@ -15,6 +15,16 @@ class RunMetrics:
         self.latency_ms = None
         self.bandwidth_mbps = None
         self.peers = None
+        self.rebalance_events = []
+
+    def record_rebalance(self, event):
+        self.rebalance_events.append(event)
+        if self.tracker is not None:
+            self.tracker.log_metrics(dict(
+                assigned_layers=self.args.num_layers,
+                rebalance_seconds=event['elapsed_s'],
+                rebalance_committed=int(event['status'] == 'committed')),
+                step=event['completed_steps'], synchronous=True)
 
     def mark(self, name):
         self.marks[name] = time.time()
@@ -64,6 +74,10 @@ class RunMetrics:
                 'embedding_dim': self.args.embedding_dim,
                 'layers_per_stage': self.args.num_layers,
                 'num_heads': self.args.num_heads,
+                'total_layers': getattr(self.args, 'total_layers', self.args.num_layers * self.args.pipeline_group_size),
+                'layer_start': getattr(self.args, 'layer_start', None),
+                'layer_end': getattr(self.args, 'layer_end', None),
+                'stage_layers': getattr(self.args, 'stage_layers', None),
             },
             'schedule': {
                 'num_epochs': getattr(self.args, 'num_epochs', 0),
@@ -71,6 +85,8 @@ class RunMetrics:
                 'num_iters': self.args.num_iters,
                 'completed_steps': len(self.iters),
             },
+            'resource_schedule': getattr(self.args, 'resource_schedule', None),
+            'rebalance_events': self.rebalance_events,
             'wall_clock_s': {
                 'total': time.time() - self.t0,
                 'comm_probe': self.elapsed('probe_start', 'probe_end') if 'probe_end' in self.marks else 0.0,

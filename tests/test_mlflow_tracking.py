@@ -59,6 +59,8 @@ class TrackingTests(unittest.TestCase):
                 args.world_size = args.pipeline_group_size = 2
                 args.seq_length, args.embedding_dim = 32, 64
                 args.num_layers, args.num_heads, args.num_iters = 1, 4, 2
+                args.stage_layers, args.total_layers = '2,1', 3
+                args.layer_start, args.layer_end = 2, 3
                 with tracked_run(args) as tracker:
                     success_id = tracker.active_run().info.run_id
                     metrics = RunMetrics(args, tracker)
@@ -75,12 +77,27 @@ class TrackingTests(unittest.TestCase):
                 self.assertEqual(success.data.tags['launch_group'], 'group')
                 self.assertEqual(success.data.metrics['completed_steps'], 2)
                 self.assertEqual(success.data.metrics['samples_per_second'], 4)
+                self.assertEqual(success.data.params['stage_layers'], '2,1')
+                self.assertEqual(success.data.params['total_layers'], '3')
+                self.assertEqual(payload['model']['layer_start'], 2)
+                self.assertEqual(payload['model']['layer_end'], 3)
                 history = client.get_metric_history(success_id, 'last_microbatch_loss')
                 self.assertEqual([(point.step, point.value) for point in history],
                                  [(1, 0.8), (2, 0.6)])
                 downloaded = client.download_artifacts(success_id,
                                                        'measurements/metrics_rank1.json')
                 self.assertEqual(json.loads(Path(downloaded).read_text()), payload)
+                # Dynamic assignment is unknown when the tracking run opens.
+                # Logging it later must not conflict with placeholder params.
+                args.dynamic_total_layers = 5
+                args.num_layers, args.stage_layers = 99, None
+                with tracked_run(args) as tracker:
+                    dynamic_id = tracker.active_run().info.run_id
+                    tracker.log_params(dict(num_layers=3, stage_layers='2,3', total_layers=5,
+                                            layer_start=2, layer_end=5))
+                dynamic = client.get_run(dynamic_id)
+                self.assertEqual(dynamic.data.params['num_layers'], '3')
+                self.assertEqual(dynamic.data.params['stage_layers'], '2,3')
             finally:
                 mlflow.set_tracking_uri(old_uri)
                 # Release SQLite handles before Windows removes the temp directory.

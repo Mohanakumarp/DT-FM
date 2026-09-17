@@ -16,6 +16,7 @@ from comm.comm_probe import measure_comm_matrix
 from utils.metrics import RunMetrics
 from utils.mlflow_tracking import add_tracking_arguments, tracked_run
 from utils.device_utils import describe_device, resolve_device, validate_runtime_args
+from scheduler.pipeline_scheduler import apply_stage_assignment, assignment_signature
 
 
 def _local_rank_argv(rank):
@@ -114,6 +115,8 @@ def main():
 
 
 def run_training(args):
+    if getattr(args, 'dynamic_total_layers', None) is None:
+        apply_stage_assignment(args)
     with tracked_run(args) as tracker:
         _run_training(args, tracker)
 
@@ -127,6 +130,13 @@ def _run_training(args, tracker):
     ))
 
     init_communicators(args)
+    if args.world_size > 1:
+        assignments = [None] * args.world_size
+        dist.all_gather_object(assignments, assignment_signature(args))
+        if any(item != assignments[0] for item in assignments):
+            raise ValueError('ranks disagree on stage assignment or training dimensions')
+    if getattr(args, 'rebalance_every', 0) and getattr(args, 'dynamic_total_layers', None) is None:
+        raise ValueError('--rebalance-every requires --dynamic-total-layers')
 
     if get_pipeline_parallel_rank() == 0 or get_pipeline_parallel_rank() == args.pipeline_group_size-1:
         if args.synthetic_data:
@@ -144,6 +154,19 @@ def _run_training(args, tracker):
         num_classes = 2
         vocab_size = -1
 
+    expected_vocab = getattr(args, 'schedule_vocab_size', 0)
+    vocab_ok = not expected_vocab or vocab_size in (-1, expected_vocab)
+    if args.world_size > 1:
+        vocab_checks = [None] * args.world_size
+        dist.all_gather_object(vocab_checks, vocab_ok)
+        vocab_ok = all(vocab_checks)
+    if not vocab_ok:
+        raise ValueError('dataset vocabulary differs from the scheduler compute profile')
+
+    if getattr(args, 'dynamic_total_layers', None) is not None:
+        from scheduler.dynamic_runtime import negotiate
+        negotiate(args, device, vocab_size)
+
     use_dp = (args.world_size != args.pipeline_group_size)
     if use_dp:
         print("Running ", args.pp_mode, " with data parallel.")
@@ -157,6 +180,9 @@ def _run_training(args, tracker):
     metrics = RunMetrics(args, tracker=tracker)
     if tracker is not None:
         tracker.log_params({'stage_parameters': n_params, 'resolved_device': str(device)})
+        if getattr(args, 'dynamic_total_layers', None) is not None:
+            tracker.log_params({key: getattr(args, key) for key in
+                                ('num_layers', 'stage_layers', 'total_layers', 'layer_start', 'layer_end')})
     # First/last ranks load all of QQP (~minutes). The middle rank skips the
     # dataset and used to enter the blocking comm probe immediately, so Gloo
     # send/recv hung until the 30min timeout. Wait here so every rank has

@@ -46,6 +46,12 @@ def tracked_run(args):
                 'batch_size', 'micro_batch_size', 'gradient_accumulate_step',
                 'lr', 'seed', 'num_iters', 'num_epochs', 'steps_per_epoch',
                 'synthetic_data', 'synthetic_vocab_size', 'task', 'pp_mode',
-                'tensor_comm', 'fp16')
+                'tensor_comm', 'fp16', 'stage_layers', 'total_layers', 'layer_start', 'layer_end',
+                'rebalance_every', 'rebalance_min_improvement')
+        if getattr(args, 'dynamic_total_layers', None) is not None:
+            # These immutable MLflow params are known only after negotiation.
+            keys = tuple(key for key in keys if key not in
+                         ('num_layers', 'stage_layers', 'total_layers', 'layer_start', 'layer_end'))
+            keys += ('dynamic_total_layers', 'scheduler_memory_fraction', 'scheduler_reserve_mb')
         mlflow.log_params({key: getattr(args, key) for key in keys if hasattr(args, key)})
         yield mlflow
