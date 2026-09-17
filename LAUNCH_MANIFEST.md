@@ -39,8 +39,18 @@ original measured rank, host, device, new launch rank, environment and command.
 The first stage becomes rank 0 and its host becomes `MASTER_IP` everywhere.
 Commands pin `WORLD_SIZE=PP_SIZE`, `DP_SIZE=1`, Gloo and probe skipping. Ports
 default to 9000 and 9100 and can be changed with `--port` and `--log-port`.
-No scheduler or runtime pipeline code is changed; existing equal stage sizing
-still applies.
+Without compute profiles, existing equal stage sizing still applies. Supply
+`--compute-profiles` and `--total-layers` to generate a version 2 manifest with
+capacity-constrained unequal stages. See [the scheduler guide](./SCHEDULER.md)
+for profiling, allocation semantics, runtime integration, and verification.
+
+Use `--dynamic --total-layers N` without compute profiles for a version 3
+manifest. It retains the network-selected rank order and requests live resource
+discovery and unequal stage allocation when the training ranks start. Actual
+assignments and memory/compute evidence are recorded in the runtime metrics.
+With `--rebalance-every N`, the manifest also pins the periodic check interval
+in each emitted command. The runtime can then migrate layers between completed
+steps while preserving weights and SGD state.
 
 Before writing, the CLI serializes and checks the JSON by recomputing the selected
 path, mapping and commands. Consumers can call

@@ -14,6 +14,13 @@ This is a research project developed by [DS3Lab@ETH Zurich](https://ds3lab.inf.e
 For browser-visible training curves, experiment comparisons, and per-rank
 measurements, see the optional [MLflow demonstration](./MLFLOW_DEMO.md).
 
+For compute profiling and unequal pipeline stage allocation, see the
+[pipeline scheduler and launch integration](./SCHEDULER.md).
+Its dynamic mode discovers available memory and compute speed at startup and
+assigns layer counts automatically with `--dynamic --total-layers N`.
+Add `--rebalance-every N` to recheck resources and migrate trained layers between
+completed optimizer steps.
+
 The portable starting point is CPU training on Windows, Linux, or WSL. On
 Windows, from the repository root:
 
