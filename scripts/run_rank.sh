@@ -54,6 +54,33 @@ SEQ="${SEQ:-64}"
 EMBED="${EMBED:-128}"
 LAYERS="${LAYERS:-2}"
 HEADS="${HEADS:-4}"
+SCHEDULE_ARGS=()
+if [[ -n "${DYNAMIC_TOTAL_LAYERS:-}" ]]; then
+  if [[ -n "${STAGE_LAYERS:-}" ]]; then
+    echo "DYNAMIC_TOTAL_LAYERS cannot be combined with STAGE_LAYERS." >&2
+    exit 1
+  fi
+  SCHEDULE_ARGS+=(--dynamic-total-layers "${DYNAMIC_TOTAL_LAYERS}"
+                 --scheduler-memory-fraction "${SCHEDULER_MEMORY_FRACTION:-0.7}"
+                 --scheduler-reserve-mb "${SCHEDULER_RESERVE_MB:-256}"
+                 --scheduler-warmup "${SCHEDULER_WARMUP:-1}"
+                 --scheduler-repeats "${SCHEDULER_REPEATS:-3}")
+  SCHEDULE_ARGS+=(--rebalance-every "${REBALANCE_EVERY:-0}"
+                 --rebalance-min-improvement "${REBALANCE_MIN_IMPROVEMENT:-0.1}")
+  if [[ -n "${SCHEDULER_HOST_ID:-}" ]]; then
+    SCHEDULE_ARGS+=(--scheduler-host-id "${SCHEDULER_HOST_ID}")
+  fi
+fi
+if [[ -n "${STAGE_LAYERS:-}" ]]; then
+  if [[ "${PROFILE}" == "bert" ]]; then
+    echo "STAGE_LAYERS cannot be combined with PROFILE=bert; use the generated scheduled command." >&2
+    exit 1
+  fi
+  SCHEDULE_ARGS+=(--stage-layers "${STAGE_LAYERS}")
+fi
+if [[ -n "${SCHEDULE_VOCAB_SIZE:-}" ]]; then
+  SCHEDULE_ARGS+=(--schedule-vocab-size "${SCHEDULE_VOCAB_SIZE}")
+fi
 
 # BERT-base-scale QQP fine-tune: 12 transformer layers split 4+4+4 across 3 ranks.
 # Not HuggingFace weights — same GPipe stack, BERT vocab, BERT-base width.
@@ -104,15 +131,20 @@ if [[ "${RANK}" == "0" ]]; then
   HUB_PID=$!
   sleep 0.4
   echo "[run_rank] log hub on ${MASTER_IP}:${LOG_PORT}  (live: tail -F ${LOG_DIR}/all_ranks.log)"
-  echo "[run_rank] start the other laptops with:"
-  for ((r=1; r<WORLD_SIZE; r++)); do
-    echo "  DEVICE=<device-for-rank-${r}> RANK=${r} MASTER_IP=${MASTER_IP} WORLD_SIZE=${WORLD_SIZE} PROFILE=${PROFILE} EPOCHS=${EPOCHS} STEPS_PER_EPOCH=${STEPS_PER_EPOCH} ITERS=${ITERS} BATCH=${BATCH:-8} MICRO=${MICRO:-2} SKIP_PROBE=${SKIP_PROBE:-true} bash scripts/run_rank.sh"
-  done
+  if [[ -n "${DYNAMIC_TOTAL_LAYERS:-}${STAGE_LAYERS:-}" ]]; then
+    echo "[run_rank] start each peer with its emitted manifest command and matching model/batch settings."
+  else
+    echo "[run_rank] start the other laptops with:"
+    for ((r=1; r<WORLD_SIZE; r++)); do
+      echo "  DEVICE=<device-for-rank-${r}> RANK=${r} MASTER_IP=${MASTER_IP} WORLD_SIZE=${WORLD_SIZE} PROFILE=${PROFILE} EPOCHS=${EPOCHS} STEPS_PER_EPOCH=${STEPS_PER_EPOCH} ITERS=${ITERS} BATCH=${BATCH:-8} MICRO=${MICRO:-2} SKIP_PROBE=${SKIP_PROBE:-true} bash scripts/run_rank.sh"
+    done
+  fi
 fi
 
 echo "[run_rank] rank=${RANK}/${WORLD_SIZE} device=${DEVICE} master=${MASTER_IP}:${PORT} profile=${PROFILE} synthetic=${SYNTHETIC_DATA} epochs=${EPOCHS} spe=${STEPS_PER_EPOCH} iters=${ITERS} iface=${GLOO_SOCKET_IFNAME:-auto}"
 
 "${PYTHON}" -u dist_runner.py \
+  "${SCHEDULE_ARGS[@]}" \
   --device "${DEVICE}" \
   --cuda-id "${CUDA_ID:-0}" \
   --directml-id "${DIRECTML_ID:-0}" \

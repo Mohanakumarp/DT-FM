@@ -3,6 +3,7 @@ import copy
 import math
 import re
 import shlex
+from scheduler.pipeline_scheduler import allocate_layers, validate_compute_profile
 
 
 def validate_profile(profile):
@@ -71,7 +72,7 @@ def _ordering(profile, payload_bytes):
 
 
 def build_manifest(profile, hosts, devices=None, payload_bytes=1048576, port=9000,
-                   log_port=9100):
+                   log_port=9100, compute_profile=None, total_layers=None, dynamic=False, rebalance_every=0):
     """Hosts/devices are indexed by measured rank, never by selected stage."""
     size = validate_profile(profile)
     if (not isinstance(hosts, list) or len(hosts) != size
@@ -87,23 +88,61 @@ def build_manifest(profile, hosts, devices=None, payload_bytes=1048576, port=900
     if any(type(p) is not int or not 1 <= p <= 65535 for p in (port, log_port)) or port == log_port:
         raise ValueError('port and log_port must be distinct TCP ports from 1 to 65535')
     order, cost = _ordering(profile, payload_bytes)
+    schedule = None
+    if type(dynamic) is not bool:
+        raise ValueError('dynamic must be a boolean')
+    if type(rebalance_every) is not int or rebalance_every < 0 or (rebalance_every and not dynamic):
+        raise ValueError('rebalance_every must be nonnegative and requires dynamic scheduling')
+    if dynamic and (compute_profile is not None or type(total_layers) is not int or not size <= total_layers <= 4096):
+        raise ValueError('dynamic scheduling requires world_size <= total_layers <= 4096 and no static compute profile')
+    if compute_profile is not None:
+        validate_compute_profile(compute_profile, size)
+        if [r['device'] for r in compute_profile['ranks']] != devices:
+            raise ValueError('compute profile devices must match launch devices in measured rank order')
+        schedule = allocate_layers(compute_profile, order, total_layers)
+    elif total_layers is not None and not dynamic:
+        raise ValueError('total_layers requires a compute profile')
     master = hosts[order[0]]
     ranks = []
     for rank, measured_rank in enumerate(order):
         env = dict(RANK=str(rank), WORLD_SIZE=str(size), PP_SIZE=str(size), DP_SIZE='1',
                    MASTER_IP=master, PORT=str(port), LOG_PORT=str(log_port),
                    DEVICE=devices[measured_rank], TENSOR_COMM='gloo', SKIP_PROBE='true')
+        if dynamic:
+            env.update(DYNAMIC_TOTAL_LAYERS=str(total_layers))
+            if rebalance_every:
+                env['REBALANCE_EVERY'] = str(rebalance_every)
+        if schedule is not None:
+            model = compute_profile['model']
+            env.update(STAGE_LAYERS=','.join(map(str, schedule['stage_layers'])),
+                       PROFILE='scheduled', SEQ=str(model['seq_length']),
+                       EMBED=str(model['embedding_dim']), HEADS=str(model['num_heads']),
+                       BATCH=str(model['batch_size']), MICRO=str(model['micro_batch_size']),
+                       SYNTHETIC_VOCAB_SIZE=str(model['vocab_size']),
+                       SCHEDULE_VOCAB_SIZE=str(model['vocab_size']))
         command = 'env ' + ' '.join(shlex.quote(k + '=' + v) for k, v in env.items())
         command += ' bash scripts/run_rank.sh'
         ranks.append(dict(rank=rank, measured_rank=measured_rank, host=hosts[measured_rank],
                           device=devices[measured_rank], env=env, command=command))
-    return dict(schema_version=1, profile=copy.deepcopy(profile),
+    manifest = dict(schema_version=1, profile=copy.deepcopy(profile),
                 hosts=list(hosts), devices=list(devices), world_size=size,
                 pipeline_group_size=size, data_group_size=1,
                 pipeline_order=order, master_host=master, port=port, log_port=log_port,
                 selection=dict(method='minimum_bidirectional_path', payload_bytes=payload_bytes,
                                cost_ms=cost, cost_semantics='sum of directed RTT_ms + bytes*8/(Mbps*1000)'),
                 ranks=ranks)
+    if schedule is not None:
+        manifest.update(schema_version=2, compute_profile=copy.deepcopy(compute_profile),
+                        schedule=schedule)
+        for entry, stage in zip(ranks, schedule['stages']):
+            entry['assignment'] = copy.deepcopy(stage)
+    if dynamic:
+        manifest.update(schema_version=3, dynamic_schedule=dict(
+            total_layers=total_layers, method='live_memory_compute_greedy',
+            assignment_time='startup_after_live_resource_discovery'))
+        if rebalance_every:
+            manifest['dynamic_schedule']['rebalance_every'] = rebalance_every
+    return manifest
 
 
 def validate_manifest(manifest):
@@ -111,12 +150,16 @@ def validate_manifest(manifest):
     try:
         expected = build_manifest(
             manifest['profile'], manifest['hosts'], manifest['devices'],
-            manifest['selection']['payload_bytes'], manifest['port'], manifest['log_port'])
+            manifest['selection']['payload_bytes'], manifest['port'], manifest['log_port'],
+            manifest.get('compute_profile'),
+            manifest.get('dynamic_schedule', manifest.get('schedule', {})).get('total_layers'),
+            'dynamic_schedule' in manifest,
+            manifest.get('dynamic_schedule', {}).get('rebalance_every', 0))
         # JSON equality also distinguishes booleans from integer rank identifiers.
         import json
         if json.dumps(manifest, sort_keys=True, allow_nan=False) != json.dumps(
                 expected, sort_keys=True, allow_nan=False):
             raise ValueError('manifest differs from the checked profile-to-launch mapping')
-    except (KeyError, TypeError, OverflowError) as exc:
+    except (KeyError, TypeError, OverflowError, AttributeError) as exc:
         raise ValueError('invalid launch manifest: %s' % exc) from exc
     return manifest
