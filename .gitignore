@@ -45,3 +45,6 @@ mlflow.db*
 mlartifacts/
 mlruns/
 logs/mlflow-demo/
+logs/lab/
+task_datasets/data/lab/
+.lab-tools/

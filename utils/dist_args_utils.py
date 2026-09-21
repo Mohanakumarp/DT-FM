@@ -16,6 +16,10 @@ def add_device_arguments(parser):
 
 
 def add_torch_distributed_arguments(parser):
+    parser.add_argument('--gloo-bind-address', default=None,
+                        help='local IPv4 address for Gloo peer sockets; bypass hostname/IPv6 auto-selection')
+    parser.add_argument('--dist-timeout-seconds', type=int, default=None,
+                        help='optional process-group initialization/collective timeout in seconds')
     parser.add_argument('--dist-backend', type=str, default='cupy_nccl', metavar='S',
                         help='backend type for distributed PyTorch (default: cupy_nccl)')
     parser.add_argument('--dist-url', type=str, default='tcp://127.0.0.1:9000', metavar='S',

@@ -73,6 +73,7 @@ class RunMetrics:
                 'seq_length': self.args.seq_length,
                 'embedding_dim': self.args.embedding_dim,
                 'layers_per_stage': self.args.num_layers,
+                'stage_parameters': getattr(self.args, 'stage_parameters', None),
                 'num_heads': self.args.num_heads,
                 'total_layers': getattr(self.args, 'total_layers', self.args.num_layers * self.args.pipeline_group_size),
                 'layer_start': getattr(self.args, 'layer_start', None),
@@ -105,6 +106,8 @@ class RunMetrics:
             'latency_ms': self.latency_ms,
             'bandwidth_mbps': self.bandwidth_mbps,
             'losses': self.losses,
+            # Keep individual steps so reports can exclude an explicit warmup.
+            'iterations': self.iters,
         }
 
     def dump(self, path):

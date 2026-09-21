@@ -1,4 +1,5 @@
 from comm.comm_utils import *
+import time
 
 
 def total_train_steps(args):
@@ -62,12 +63,15 @@ def distributed_train_foo_iter(args, pipeline, device, train_data_loader, metric
     # A 1-stage pipeline is both first and last: it must consume token ids
     # and QQP labels on the same rank. Multi-stage first/last behavior is unchanged.
     completed = 0
+    training_started = time.perf_counter()
     total_time = 0.0
     last_iter_time = None
 
     def _one_step(input_ids, labels):
         nonlocal completed, total_time, last_iter_time
         stats = pipeline.sgd_iter(input_ids, labels)
+        if isinstance(stats, dict):
+            stats = dict(stats, train_elapsed_s=time.perf_counter() - training_started)
         last_iter_time = _iter_seconds(stats)
         _maybe_record(metrics, stats)
         if metrics is not None and getattr(pipeline, 'last_loss', None) is not None:

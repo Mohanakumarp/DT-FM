@@ -11,6 +11,10 @@ This is a research project developed by [DS3Lab@ETH Zurich](https://ds3lab.inf.e
 
 ## Local setup
 
+For a three-computer college-lab experiment with automatic Python/data setup,
+equal-versus-resource allocation comparisons, and an offline report for review,
+see [the lab workflow](./LAB_DEMO.md).
+
 For browser-visible training curves, experiment comparisons, and per-rank
 measurements, see the optional [MLflow demonstration](./MLFLOW_DEMO.md).
 

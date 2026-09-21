@@ -500,10 +500,10 @@ class GpipeAsync:
             json.dump(self.profiling_log, outfile)
 
     def sgd_iter(self, input_=None, target=None):
-        t_bar0 = time.time()
+        t_bar0 = time.perf_counter()
         self.comm.barrier()
-        barrier_s = time.time() - t_bar0
-        start_time = time.time()
+        barrier_s = time.perf_counter() - t_bar0
+        start_time = time.perf_counter()
         if self.enable_tidy_profiling:
             torch.cuda.synchronize()
             self.init_time_stamp = time.time() * 1e+6
@@ -514,29 +514,29 @@ class GpipeAsync:
         forward_s = 0.0
         backward_s = 0.0
         for step in range(self.gradient_accumulate_step):
-            t_fwd = time.time()
+            t_fwd = time.perf_counter()
             outputs = self.forward_stage(input_, target)
-            forward_time = time.time()
+            forward_time = time.perf_counter()
             forward_slot = forward_time - t_fwd
             forward_s += forward_slot
             print("Rank {} node forward pass {}/{} takes {:3.2f}s"
                   .format(self.global_rank, step, self.gradient_accumulate_step, forward_slot))
-            t_bar = time.time()
+            t_bar = time.perf_counter()
             self.comm.barrier()  # This is an educated guess that such barrier would make it fair TC (probably required)
-            barrier_s += time.time() - t_bar
+            barrier_s += time.perf_counter() - t_bar
             self.backward_stage(outputs, target)
-            backward_time = time.time()
+            backward_time = time.perf_counter()
             backward_slot = backward_time - forward_time
             backward_s += backward_slot
             print("Rank {} node backward pass {}/{} takes {:3.2f}s"
                   .format(self.global_rank, step, self.gradient_accumulate_step, backward_slot))
-        optimizer_time = time.time()
+        optimizer_time = time.perf_counter()
         self.optimizer_step()
         _synchronize_device(self.device)
-        t_bar = time.time()
+        t_bar = time.perf_counter()
         self.comm.barrier()
-        barrier_s += time.time() - t_bar
-        end_time = time.time()
+        barrier_s += time.perf_counter() - t_bar
+        end_time = time.perf_counter()
         optim_s = end_time - optimizer_time
         print("Rank {} node optimizer step takes {:3.2f}s".format(self.global_rank, optim_s))
         iter_time = end_time - start_time

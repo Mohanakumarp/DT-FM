@@ -175,6 +175,7 @@ def _run_training(args, tracker):
 
     pipe = get_pp_module(args, vocab_size, num_classes, device, use_dp)
     n_params = sum(p.numel() for p in pipe.model.parameters())
+    args.stage_parameters = n_params
     print("Rank", args.rank, "stage params:", n_params)
 
     metrics = RunMetrics(args, tracker=tracker)

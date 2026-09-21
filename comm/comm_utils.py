@@ -1,4 +1,6 @@
 import os
+import ipaddress
+from datetime import timedelta
 
 import torch
 import torch.distributed as dist
@@ -190,19 +192,52 @@ def _synchronize_tensor(tensor):
             tensor.detach().reshape(-1)[0].item()
 
 
+def _create_ipv4_gloo(backend_options, options):
+    options._timeout = backend_options.timeout
+    group = dist.ProcessGroupGloo(backend_options.store, backend_options.group_rank,
+                                 backend_options.group_size, options)
+    group._set_sequence_number_for_group()
+    return group
+
+
 def default_init(args):
+    bind_address = getattr(args, 'gloo_bind_address', None)
+    extra = {}
+    backend = 'gloo'
+    if bind_address:
+        address = ipaddress.ip_address(bind_address)
+        if address.version != 4 or address.is_unspecified or address.is_multicast:
+            raise ValueError('--gloo-bind-address must be a concrete local IPv4 address')
+        # Numeric IPv4 avoids Windows hostname resolution choosing link-local
+        # IPv6, whose scope identifier cannot be shared between machines.
+        options = dist.ProcessGroupGloo._Options()
+        options._devices = [dist.ProcessGroupGloo.create_device(hostname=str(address))]
+        extra['pg_options'] = options
+        # PyTorch's built-in "gloo" initialization currently ignores pg_options.
+        # Register a factory to pass the explicit device to Gloo's constructor.
+        backend = 'dtfm_gloo_ipv4'
+        if not hasattr(dist.Backend, backend.upper()):
+            dist.Backend.register_backend(backend, _create_ipv4_gloo,
+                                          extended_api=True, devices=['cpu'])
+    timeout = getattr(args, 'dist_timeout_seconds', None)
+    if timeout is not None:
+        if timeout <= 0:
+            raise ValueError('--dist-timeout-seconds must be positive')
+        extra['timeout'] = timedelta(seconds=timeout)
     # Tailscale has IPv4 and IPv6 addresses. Pinning a Linux interface avoids
     # address-family mismatches when the caller did not choose one explicitly.
-    if os.path.isdir('/sys/class/net/tailscale0'):
+    if not bind_address and not os.environ.get('GLOO_SOCKET_IFNAME') and os.path.isdir('/sys/class/net/tailscale0'):
         os.environ['GLOO_SOCKET_IFNAME'] = 'tailscale0'
     print('[gloo] init', args.dist_url, 'rank', args.rank, '/', args.world_size,
-          'iface', os.environ.get('GLOO_SOCKET_IFNAME'))
+          'bind IPv4', bind_address, 'iface', os.environ.get('GLOO_SOCKET_IFNAME'), flush=True)
     dist.init_process_group(
-        backend='gloo',
+        backend=backend,
         init_method=args.dist_url,
         world_size=args.world_size,
         rank=args.rank,
+        **extra,
     )
+    print('[gloo] rank', args.rank, 'process group connected', flush=True)
 
 
 def _nccl_ok_consensus(local_ok, world_size):
