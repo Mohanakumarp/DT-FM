@@ -72,8 +72,8 @@ if [[ -n "${DYNAMIC_TOTAL_LAYERS:-}" ]]; then
   fi
 fi
 if [[ -n "${STAGE_LAYERS:-}" ]]; then
-  if [[ "${PROFILE}" == "bert" ]]; then
-    echo "STAGE_LAYERS cannot be combined with PROFILE=bert; use the generated scheduled command." >&2
+  if [[ "${PROFILE}" =~ ^bert ]]; then
+    echo "STAGE_LAYERS cannot be combined with PROFILE=${PROFILE}; use the generated scheduled command." >&2
     exit 1
   fi
   SCHEDULE_ARGS+=(--stage-layers "${STAGE_LAYERS}")
@@ -82,13 +82,32 @@ if [[ -n "${SCHEDULE_VOCAB_SIZE:-}" ]]; then
   SCHEDULE_ARGS+=(--schedule-vocab-size "${SCHEDULE_VOCAB_SIZE}")
 fi
 
-# BERT-base-scale QQP fine-tune: 12 transformer layers split 4+4+4 across 3 ranks.
-# Not HuggingFace weights — same GPipe stack, BERT vocab, BERT-base width.
-if [[ "${PROFILE}" == "bert" ]]; then
+# BERT profiles for QQP fine-tuning:
+# 1. bert (base ~110M params): 12 layers (4+4+4 across 3 ranks), hidden=768, heads=12
+# 2. bert-500m (~510M params): 24 layers (8+8+8 across 3 ranks), hidden=1280, heads=16
+#    Optimized for 3x 6GB RTX 3050 GPUs (~3.2 GB VRAM per rank, fits cleanly).
+# 3. bert-large (~340M params): 24 layers (8+8+8 across 3 ranks), hidden=1024, heads=16
+if [[ "${PROFILE}" == "bert" || "${PROFILE}" == "bert-base" ]]; then
   SEQ=128
   EMBED=768
   LAYERS=4
   HEADS=12
+  if [[ "${EPOCHS}" -eq 0 ]]; then EPOCHS=2; fi
+  if [[ "${STEPS_PER_EPOCH}" -eq 0 ]]; then STEPS_PER_EPOCH=50; fi
+  ITERS=$((EPOCHS * STEPS_PER_EPOCH))
+elif [[ "${PROFILE}" == "bert-500m" ]]; then
+  SEQ=128
+  EMBED=1280
+  LAYERS=8
+  HEADS=16
+  if [[ "${EPOCHS}" -eq 0 ]]; then EPOCHS=2; fi
+  if [[ "${STEPS_PER_EPOCH}" -eq 0 ]]; then STEPS_PER_EPOCH=50; fi
+  ITERS=$((EPOCHS * STEPS_PER_EPOCH))
+elif [[ "${PROFILE}" == "bert-large" ]]; then
+  SEQ=128
+  EMBED=1024
+  LAYERS=8
+  HEADS=16
   if [[ "${EPOCHS}" -eq 0 ]]; then EPOCHS=2; fi
   if [[ "${STEPS_PER_EPOCH}" -eq 0 ]]; then STEPS_PER_EPOCH=50; fi
   ITERS=$((EPOCHS * STEPS_PER_EPOCH))
@@ -126,17 +145,44 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# MLflow tracking
+MLFLOW_ARGS=()
+if [[ -n "${MLFLOW_TRACKING_URI:-}" ]]; then
+  DEFAULT_EXPERIMENT="DT-FM training"
+  if [[ "${PROFILE}" =~ ^bert ]]; then
+    DEFAULT_EXPERIMENT="DT-FM $(echo "${PROFILE}" | tr '[:lower:]' '[:upper:]')"
+  fi
+  MLFLOW_EXPERIMENT="${MLFLOW_EXPERIMENT:-${DEFAULT_EXPERIMENT}}"
+  MLFLOW_RUN_NAME="${MLFLOW_RUN_NAME:-${PROFILE}-rank-${RANK}}"
+  MLFLOW_ARGS+=(--mlflow-tracking-uri "${MLFLOW_TRACKING_URI}"
+                --mlflow-experiment "${MLFLOW_EXPERIMENT}"
+                --mlflow-run-name "${MLFLOW_RUN_NAME}")
+  if [[ -n "${MLFLOW_GROUP:-}" ]]; then
+    MLFLOW_ARGS+=(--mlflow-group "${MLFLOW_GROUP}")
+  fi
+fi
+
 if [[ "${RANK}" == "0" ]]; then
   "${PYTHON}" -u "${SCRIPT_DIR}/log_hub.py" --port "${LOG_PORT}" --out "${LOG_DIR}/all_ranks.log" &
   HUB_PID=$!
   sleep 0.4
   echo "[run_rank] log hub on ${MASTER_IP}:${LOG_PORT}  (live: tail -F ${LOG_DIR}/all_ranks.log)"
+  if [[ -n "${MLFLOW_TRACKING_URI:-}" ]]; then
+    echo "[run_rank] MLflow tracking: ${MLFLOW_TRACKING_URI} (experiment: ${MLFLOW_EXPERIMENT})"
+  fi
   if [[ -n "${DYNAMIC_TOTAL_LAYERS:-}${STAGE_LAYERS:-}" ]]; then
     echo "[run_rank] start each peer with its emitted manifest command and matching model/batch settings."
   else
     echo "[run_rank] start the other laptops with:"
     for ((r=1; r<WORLD_SIZE; r++)); do
-      echo "  DEVICE=<device-for-rank-${r}> RANK=${r} MASTER_IP=${MASTER_IP} WORLD_SIZE=${WORLD_SIZE} PROFILE=${PROFILE} EPOCHS=${EPOCHS} STEPS_PER_EPOCH=${STEPS_PER_EPOCH} ITERS=${ITERS} BATCH=${BATCH:-8} MICRO=${MICRO:-2} SKIP_PROBE=${SKIP_PROBE:-true} bash scripts/run_rank.sh"
+      MLFLOW_PEER_ENV=""
+      if [[ -n "${MLFLOW_TRACKING_URI:-}" ]]; then
+        MLFLOW_PEER_ENV="MLFLOW_TRACKING_URI='${MLFLOW_TRACKING_URI}' MLFLOW_EXPERIMENT='${MLFLOW_EXPERIMENT}' "
+        if [[ -n "${MLFLOW_GROUP:-}" ]]; then
+          MLFLOW_PEER_ENV+="MLFLOW_GROUP='${MLFLOW_GROUP}' "
+        fi
+      fi
+      echo "  ${MLFLOW_PEER_ENV}DEVICE=<device-for-rank-${r}> RANK=${r} MASTER_IP=${MASTER_IP} WORLD_SIZE=${WORLD_SIZE} PROFILE=${PROFILE} EPOCHS=${EPOCHS} STEPS_PER_EPOCH=${STEPS_PER_EPOCH} ITERS=${ITERS} BATCH=${BATCH:-8} MICRO=${MICRO:-2} SKIP_PROBE=${SKIP_PROBE:-true} bash scripts/run_rank.sh"
     done
   fi
 fi
@@ -145,6 +191,7 @@ echo "[run_rank] rank=${RANK}/${WORLD_SIZE} device=${DEVICE} master=${MASTER_IP}
 
 "${PYTHON}" -u dist_runner.py \
   "${SCHEDULE_ARGS[@]}" \
+  "${MLFLOW_ARGS[@]}" \
   --device "${DEVICE}" \
   --cuda-id "${CUDA_ID:-0}" \
   --directml-id "${DIRECTML_ID:-0}" \

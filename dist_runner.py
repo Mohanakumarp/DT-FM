@@ -180,7 +180,11 @@ def _run_training(args, tracker):
 
     metrics = RunMetrics(args, tracker=tracker)
     if tracker is not None:
-        tracker.log_params({'stage_parameters': n_params, 'resolved_device': str(device)})
+        device_desc = describe_device(
+            device, args.device_backend, getattr(args, 'directml_name', None)
+        )
+        tracker.set_tags({'resolved_device': str(device), 'device_name': device_desc})
+        tracker.log_params({'stage_parameters': n_params, 'resolved_device': str(device), 'device_name': device_desc})
         if getattr(args, 'dynamic_total_layers', None) is not None:
             tracker.log_params({key: getattr(args, key) for key in
                                 ('num_layers', 'stage_layers', 'total_layers', 'layer_start', 'layer_end')})

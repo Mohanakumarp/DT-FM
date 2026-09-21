@@ -16,7 +16,8 @@ equal-versus-resource allocation comparisons, and an offline report for review,
 see [the lab workflow](./LAB_DEMO.md).
 
 For browser-visible training curves, experiment comparisons, and per-rank
-measurements, see the optional [MLflow demonstration](./MLFLOW_DEMO.md).
+measurements, see the optional [MLflow demonstration](./MLFLOW_DEMO.md) and
+the [distributed BERT MLflow guide](./MLFLOW_BERT_GUIDE.md).
 
 For compute profiling and unequal pipeline stage allocation, see the
 [pipeline scheduler and launch integration](./SCHEDULER.md).

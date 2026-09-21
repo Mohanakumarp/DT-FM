@@ -75,6 +75,8 @@ class TrackingTests(unittest.TestCase):
                 success = client.get_run(success_id)
                 self.assertEqual(success.info.status, 'FINISHED')
                 self.assertEqual(success.data.tags['launch_group'], 'group')
+                self.assertEqual(success.data.tags['pipeline_stage'], '1/2')
+                self.assertEqual(success.data.tags['pipeline_role'], 'last_stage')
                 self.assertEqual(success.data.metrics['completed_steps'], 2)
                 self.assertEqual(success.data.metrics['samples_per_second'], 4)
                 self.assertEqual(success.data.params['stage_layers'], '2,1')
@@ -102,9 +104,11 @@ class TrackingTests(unittest.TestCase):
                 mlflow.set_tracking_uri(old_uri)
                 # Release SQLite handles before Windows removes the temp directory.
                 from mlflow.store.tracking.sqlalchemy_store import SqlAlchemyStore
-                engine = SqlAlchemyStore._engine_map.pop(uri, None)
-                if engine is not None:
-                    engine.dispose()
+                engine_map = getattr(SqlAlchemyStore, '_engine_map', None)
+                if engine_map is not None:
+                    engine = engine_map.pop(uri, None)
+                    if engine is not None:
+                        engine.dispose()
 
 
 if __name__ == '__main__':
