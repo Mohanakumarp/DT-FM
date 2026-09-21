@@ -11,6 +11,13 @@ PORT="${PORT:-5000}"
 HOST="${HOST:-0.0.0.0}"
 
 # Find python interpreter
+if [[ -z "${PYTHON:-}" && -z "${CONDA_PREFIX:-}" ]]; then
+  if command -v conda >/dev/null 2>&1; then
+    # shellcheck disable=SC1091
+    source "$(conda info --base)/etc/profile.d/conda.sh"
+    conda activate "${DTFM_CONDA_ENV:-dtfm}" 2>/dev/null || true
+  fi
+fi
 if [[ -z "${PYTHON:-}" ]]; then
   if [[ -f "${ROOT}/.venv-cpu/bin/python" ]]; then
     PYTHON="${ROOT}/.venv-cpu/bin/python"

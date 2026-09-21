@@ -160,6 +160,37 @@ if [[ -n "${MLFLOW_TRACKING_URI:-}" ]]; then
   if [[ -n "${MLFLOW_GROUP:-}" ]]; then
     MLFLOW_ARGS+=(--mlflow-group "${MLFLOW_GROUP}")
   fi
+
+  # Verify connectivity or auto-start on Rank 0
+  if ! curl -s --connect-timeout 2 "${MLFLOW_TRACKING_URI}/health" >/dev/null 2>&1; then
+    if [[ "${RANK}" == "0" && ("${MLFLOW_TRACKING_URI}" =~ 127\.0\.0\.1|localhost|"${MASTER_IP}") ]]; then
+      echo "[run_rank] MLflow server not responding at ${MLFLOW_TRACKING_URI}. Auto-starting server..."
+      "${SCRIPT_DIR}/start_mlflow.sh" > "${LOG_DIR}/mlflow.log" 2>&1 &
+      for i in {1..10}; do
+        if curl -s --connect-timeout 1 "${MLFLOW_TRACKING_URI}/health" >/dev/null 2>&1; then
+          echo "[run_rank] MLflow server started successfully. Logs: ${LOG_DIR}/mlflow.log"
+          break
+        fi
+        sleep 1
+      done
+    fi
+    if ! curl -s --connect-timeout 2 "${MLFLOW_TRACKING_URI}/health" >/dev/null 2>&1; then
+      echo "==========================================================================" >&2
+      echo "[ERROR] Cannot connect to MLflow server at: ${MLFLOW_TRACKING_URI}" >&2
+      echo "The server connection was refused or timed out." >&2
+      echo "" >&2
+      if [[ "${RANK}" == "0" ]]; then
+        echo "Please start the MLflow tracking server first:" >&2
+        echo "  bash scripts/start_mlflow.sh" >&2
+        echo "Or check ${LOG_DIR}/mlflow.log for details." >&2
+      else
+        echo "Please ensure the MLflow server is running on Master node (${MASTER_IP})" >&2
+        echo "and port 5000 is open across Tailscale." >&2
+      fi
+      echo "==========================================================================" >&2
+      exit 1
+    fi
+  fi
 fi
 
 if [[ "${RANK}" == "0" ]]; then
