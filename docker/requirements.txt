@@ -1,0 +1,13 @@
+# Shared container dependencies. Both images use Python 3.10 and PyTorch 2.8.0.
+-r ../requirements.txt
+-r ../requirements-mlflow.txt
+six==1.17.0
+mlflow==2.22.2
+# Original scheduling, plotting, and optional pretraining-corpus utilities.
+scipy==1.14.1
+pandas==2.2.3
+matplotlib==3.9.4
+seaborn==0.13.2
+datasets==2.21.0
+# Lab process-lifecycle verification uses this to detect orphaned workers.
+psutil==7.1.0

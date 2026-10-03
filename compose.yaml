@@ -1,0 +1,133 @@
+name: dtfm
+
+x-cpu: &cpu
+  image: dtfm:cpu
+  build:
+    context: .
+    target: cpu
+  init: true
+  shm_size: 1gb
+  environment: &environment
+    OMP_NUM_THREADS: "${DTFM_THREADS:-2}"
+    MKL_NUM_THREADS: "${DTFM_THREADS:-2}"
+    HF_HOME: /cache/huggingface
+  volumes:
+    - datasets:/app/task_datasets/data
+    - ./logs:/app/logs
+    - ./trace_json:/app/trace_json
+    - cache:/cache
+
+services:
+  # Default: two real optimizer steps on synthetic data, no dataset download.
+  train:
+    <<: *cpu
+
+  # Explicit service selection also activates the corresponding profile.
+  rank0:
+    <<: *cpu
+    profiles: [distributed]
+    environment:
+      <<: *environment
+      GLOO_SOCKET_IFNAME: eth0
+    command:
+      - smoke
+      - --world-size
+      - "2"
+      - --pipeline-group-size
+      - "2"
+      - --spawn-local-ranks
+      - "false"
+      - --dist-url
+      - tcp://rank0:9000
+      - --rank
+      - "0"
+      - --metrics-dir
+      - ./logs/compose-2rank
+
+  rank1:
+    <<: *cpu
+    profiles: [distributed]
+    depends_on:
+      rank0:
+        condition: service_started
+    environment:
+      <<: *environment
+      GLOO_SOCKET_IFNAME: eth0
+    command:
+      - smoke
+      - --world-size
+      - "2"
+      - --pipeline-group-size
+      - "2"
+      - --spawn-local-ranks
+      - "false"
+      - --dist-url
+      - tcp://rank0:9000
+      - --rank
+      - "1"
+      - --metrics-dir
+      - ./logs/compose-2rank
+
+  mlflow:
+    <<: *cpu
+    profiles: [tracking]
+    command:
+      - python
+      - -m
+      - mlflow
+      - server
+      - --host
+      - 0.0.0.0
+      - --port
+      - "5000"
+      - --backend-store-uri
+      - sqlite:////mlflow/mlflow.db
+      - --serve-artifacts
+      - --artifacts-destination
+      - /mlflow/artifacts
+    ports:
+      - "127.0.0.1:${MLFLOW_PORT:-5000}:5000"
+    volumes:
+      - mlflow:/mlflow
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=3)"
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  tracking-demo:
+    <<: *cpu
+    profiles: [tracking]
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    command:
+      - python
+      - scripts/run_mlflow_demo.py
+      - --tracking-uri
+      - http://mlflow:5000
+
+  gpu:
+    <<: *cpu
+    image: dtfm:cuda
+    build:
+      context: .
+      target: cuda
+    profiles: [gpu]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  datasets:
+  cache:
+  mlflow:

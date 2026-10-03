@@ -1,0 +1,72 @@
+name: Docker
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build CPU image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: cpu
+          load: true
+          tags: dtfm:cpu
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Validate Compose
+        run: docker compose --profile '*' config --quiet
+      - name: Existing test suite and CPU smoke
+        run: |
+          docker compose run --rm --no-deps train test
+          docker compose run --rm --no-deps train
+          docker compose run --rm --no-deps -e DTFM_WORLD_SIZE=2 train
+      - name: Train across two containers
+        run: |
+          docker compose up -d rank0 rank1
+          timeout 180 docker compose wait rank0 rank1
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          for rank in (0, 1):
+              result = json.loads(Path(f'logs/compose-2rank/metrics_rank{rank}.json').read_text())
+              assert result['rank'] == rank
+              assert result['schedule']['completed_steps'] == 2
+          PY
+      - name: MLflow server and training demo
+        run: |
+          docker compose up -d --wait mlflow
+          docker compose run --rm tracking-demo python scripts/run_mlflow_demo.py --tracking-uri http://mlflow:5000 --steps 2
+      - name: Show service logs
+        if: always()
+        run: docker compose --profile '*' logs
+      - name: Save measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-cpu-measurements
+          path: logs/
+      - name: Stop containers
+        if: always()
+        run: docker compose --profile '*' down
+
+  cuda-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build CUDA image (no GPU execution on hosted runner)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: cuda
+          cache-from: type=gha,scope=cuda
+          cache-to: type=gha,scope=cuda,mode=max

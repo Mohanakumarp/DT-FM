@@ -35,6 +35,10 @@ logs/*.log
 logs/*.txt
 !logs/readme.txt
 logs/smoke/
+logs/compose-2rank/
+logs/probe/
+logs/qqp/
+dtfm-*.tar
 trace_json/*.json
 !trace_json/doc.txt
 *.pt

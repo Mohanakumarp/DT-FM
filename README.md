@@ -9,6 +9,23 @@ This is a research project developed by [DS3Lab@ETH Zurich](https://ds3lab.inf.e
 
 - The other modules are self-document to support the distributed training within the scope of pipeline parallelism and data parallelism.
 
+## Docker
+
+Run a CPU training smoke test from a clone on Linux, Windows, or macOS:
+
+```bash
+docker compose up --build train
+```
+
+For two pipeline workers in separate containers:
+
+```bash
+docker compose up --build rank0 rank1
+```
+
+See [DOCKER.md](./DOCKER.md) for persistent datasets and logs, custom training,
+MLflow tracking, the NVIDIA CUDA image, and training across multiple machines.
+
 ## Local setup
 
 For a three-computer college-lab experiment with automatic Python/data setup,
