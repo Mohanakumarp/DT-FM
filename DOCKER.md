@@ -8,9 +8,38 @@ the image, so builds do not need datasets or a GPU.
 ## Quick start
 
 Install Docker Engine with Compose v2 on Linux, or Docker Desktop using Linux
-containers on Windows/macOS. Run from the repository root:
+containers on Windows/macOS.
+
+Prebuilt images are published to [Docker Hub](https://hub.docker.com/r/suryanarayanaant/dtfm):
+`suryanarayanaant/dtfm:cpu` (also `:latest`) and `suryanarayanaant/dtfm:cuda`.
+These published images target `linux/amd64`. ARM machines can build the CPU
+image locally with the command below.
+
+Run the CPU smoke test without cloning or building the project:
 
 ```bash
+docker run --rm -e OMP_NUM_THREADS=2 -e MKL_NUM_THREADS=2 suryanarayanaant/dtfm:cpu
+```
+
+From the repository root, pull the published image and run Compose with its
+persistent volumes:
+
+```bash
+export DTFM_IMAGE=suryanarayanaant/dtfm
+docker compose pull train
+docker compose up --no-build train
+```
+
+The same `DTFM_IMAGE` setting selects the published images for distributed
+workers, MLflow, and the GPU service. For example, `docker compose pull rank0
+rank1` followed by `docker compose up --no-build rank0 rank1` runs two workers.
+Use `docker compose pull gpu` followed by `docker compose up --no-build gpu`
+on a host with NVIDIA Container Toolkit and a compatible GPU driver.
+
+Alternatively, build from source (including native ARM CPU images):
+
+```bash
+unset DTFM_IMAGE
 docker compose up --build train
 ```
 

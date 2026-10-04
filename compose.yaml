@@ -1,7 +1,7 @@
 name: dtfm
 
 x-cpu: &cpu
-  image: dtfm:cpu
+  image: "${DTFM_IMAGE:-dtfm}:cpu"
   build:
     context: .
     target: cpu
@@ -114,7 +114,7 @@ services:
 
   gpu:
     <<: *cpu
-    image: dtfm:cuda
+    image: "${DTFM_IMAGE:-dtfm}:cuda"
     build:
       context: .
       target: cuda
