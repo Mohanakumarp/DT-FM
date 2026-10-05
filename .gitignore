@@ -50,5 +50,7 @@ mlartifacts/
 mlruns/
 logs/mlflow-demo/
 logs/lab/
-task_datasets/data/lab/
+task_datasets/data/
 .lab-tools/
+task_datasets/data/wikitext-103/
+task_datasets/data/wikitext-103.tgz
