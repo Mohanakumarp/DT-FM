@@ -1,0 +1,6 @@
+# Multi-machine mT5 transport on Linux Docker Engine.
+services:
+  train:
+    network_mode: host
+  gpu:
+    network_mode: host

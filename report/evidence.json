@@ -1,0 +1,450 @@
+{
+  "report_date": "2026-10-04",
+  "upstream_baseline": "cda948f02111ad194ce108d4c65b85258afd0c19",
+  "committed_baseline": "e0c0507c22a67c837901094777cb70680aca1bfe",
+  "team_commit_count": 36,
+  "whitespace_ignored_diff": "98 files changed, 38205 insertions(+), 102 deletions(-)",
+  "commits": [
+    {
+      "sha": "a2558605375ee58e614eee7a930475eb147d3041",
+      "date": "2026-08-17",
+      "author": "Mohana Kumar P",
+      "subject": "Add local single-GPU setup and working GPipe QQP path."
+    },
+    {
+      "sha": "e0bc3fc14896e573a77e0f88bcf2dfbc619dc14d",
+      "date": "2026-08-17",
+      "author": "Karthick-1905",
+      "subject": "Update environment setup for CUDA 11.8 compatibility and refine NCCL installation process"
+    },
+    {
+      "sha": "d7523f2297c421bd5cdf5d411a716171551d19ec",
+      "date": "2026-08-18",
+      "author": "Karthick-1905",
+      "subject": "Added log to all users feature"
+    },
+    {
+      "sha": "9f4784b99dc665a868421f23c0c4ece576e26e9b",
+      "date": "2026-08-18",
+      "author": "Dhaarun",
+      "subject": "removed carriage feed line feed, some windows iissue for me"
+    },
+    {
+      "sha": "a2373d7ceb654e18d686276cffd7e584aff73a1f",
+      "date": "2026-08-18",
+      "author": "Dhaarun",
+      "subject": "merge conflict"
+    },
+    {
+      "sha": "43ff6ad0b3f40bc83892febf632bd891d8c915d9",
+      "date": "2026-08-18",
+      "author": "Karthick-1905",
+      "subject": "Changed run_rank.sh to include tailscale"
+    },
+    {
+      "sha": "4c6d462542d482dcac744f2e013ffbc7893814b0",
+      "date": "2026-08-18",
+      "author": "Karthick-1905",
+      "subject": "pushed files for bert"
+    },
+    {
+      "sha": "b070768c25a492baf7aeb4b08d3c9e5c5ed426d3",
+      "date": "2026-08-21",
+      "author": "Karthick-1905",
+      "subject": "Include skiop probe to skip probing inbetween"
+    },
+    {
+      "sha": "0ad2972b7fb27d25223328a95ac591fcc31ade75",
+      "date": "2026-08-21",
+      "author": "Karthick-1905",
+      "subject": "Included COmm_probe"
+    },
+    {
+      "sha": "e4cc28632776442148b0f4e604797cd193ff2c5d",
+      "date": "2026-08-21",
+      "author": "Karthick-1905",
+      "subject": "Made Skip close True by deafult"
+    },
+    {
+      "sha": "2a9cae415a967e38abb9da8cc20dc86afb4c422e",
+      "date": "2026-08-24",
+      "author": "Karthick-1905",
+      "subject": "Chnaged Batch size"
+    },
+    {
+      "sha": "8ce247d78d485524bef749e6a1dbc5f3019d6f20",
+      "date": "2026-08-24",
+      "author": "Karthick-1905",
+      "subject": "Show per-microbatch forward progress and use a smaller default batch."
+    },
+    {
+      "sha": "dc22c1afb1413096602e735127eff53d3a8e4f2f",
+      "date": "2026-08-24",
+      "author": "Karthick-1905",
+      "subject": "Log each backward micro-batch so a Gloo hang is visible."
+    },
+    {
+      "sha": "a689d8b8afde3f9f5c75723f31a17ec5a5187a72",
+      "date": "2026-08-28",
+      "author": "SuryaNarayanaa",
+      "subject": "Add CPU and AMD Radeon runtime support"
+    },
+    {
+      "sha": "10fce097bac3bd0fdeae2771f63950b8bd994cb5",
+      "date": "2026-08-28",
+      "author": "SuryaNarayanaa",
+      "subject": "Add Intel XPU single-device support"
+    },
+    {
+      "sha": "12abf6396d2daf20e72645a5c6a664605c056f23",
+      "date": "2026-08-30",
+      "author": "SuryaNarayanaa",
+      "subject": "Add Intel UHD DirectML support"
+    },
+    {
+      "sha": "5a110d6a24f79fbb3b2e02fa60afa2ed3644f62a",
+      "date": "2026-08-30",
+      "author": "SuryaNarayanaa",
+      "subject": "Avoid duplicate DirectML initialization"
+    },
+    {
+      "sha": "6a117310a5125574f81ed5f02c918da8ce87308a",
+      "date": "2026-08-30",
+      "author": "SuryaNarayanaa",
+      "subject": "Record Intel UHD DirectML verification"
+    },
+    {
+      "sha": "478875ba1de08e43b4fef81baa9b5683945f2364",
+      "date": "2026-08-30",
+      "author": "SuryaNarayanaa",
+      "subject": "Add heterogeneous Gloo pipeline support"
+    },
+    {
+      "sha": "0b5d09ab3164dfaa54c1189e1f7fffd0ccbb3f53",
+      "date": "2026-08-30",
+      "author": "SuryaNarayanaa",
+      "subject": "Record mixed Intel UHD pipeline verification"
+    },
+    {
+      "sha": "a389a760c5cf15e032afa4ba64cc6b91a98c3952",
+      "date": "2026-09-06",
+      "author": "SuryaNarayanaa",
+      "subject": "Fix communication probe aggregation and listener failure handling"
+    },
+    {
+      "sha": "e2560a459bf5ba5be599c67ab93509cda6708847",
+      "date": "2026-09-15",
+      "author": "SuryaNarayanaa",
+      "subject": "Add optional per-rank MLflow tracking and validated browser demo"
+    },
+    {
+      "sha": "33f6f09f6a64a7dd41d3f49e48bf16dc3fb64c70",
+      "date": "2026-09-15",
+      "author": "SuryaNarayanaa",
+      "subject": "Add profile-driven launch manifests"
+    },
+    {
+      "sha": "540d216d19d3374fb6438fa6ae0fc285307d31a0",
+      "date": "2026-09-15",
+      "author": "SuryaNarayanaa",
+      "subject": "Make rank launcher portable"
+    },
+    {
+      "sha": "2cfbf55e298f1f8a8868fd2f575b2bc0457bfe41",
+      "date": "2026-09-17",
+      "author": "SuryaNarayanaa",
+      "subject": "Add capacity-constrained pipeline allocation and compute profiling"
+    },
+    {
+      "sha": "61bca501b1bf75f40b7124a637af906f6b3e4622",
+      "date": "2026-09-17",
+      "author": "SuryaNarayanaa",
+      "subject": "Add live resource discovery and pipeline stage negotiation"
+    },
+    {
+      "sha": "91beedd22b293af88590c02b8f4898ff4596ed15",
+      "date": "2026-09-17",
+      "author": "SuryaNarayanaa",
+      "subject": "Add transactional layer migration and periodic rebalancing"
+    },
+    {
+      "sha": "21e630a6f109fb5944f3f67ffd270848278dd0eb",
+      "date": "2026-09-17",
+      "author": "SuryaNarayanaa",
+      "subject": "Integrate scheduling and rebalancing with training metrics"
+    },
+    {
+      "sha": "0c38142bb391db0ea864b9c51e87cc9e5a722ee1",
+      "date": "2026-09-17",
+      "author": "SuryaNarayanaa",
+      "subject": "Extend launch manifests and rank commands with scheduling options"
+    },
+    {
+      "sha": "16cdf93acc3b22f79ee9bdd25daa709892815701",
+      "date": "2026-09-17",
+      "author": "SuryaNarayanaa",
+      "subject": "Verify scheduled launches and migration state continuity"
+    },
+    {
+      "sha": "69dac0ab0bfd5cf5a743604425b699cca806dd16",
+      "date": "2026-09-17",
+      "author": "SuryaNarayanaa",
+      "subject": "Document pipeline scheduling and migration workflows"
+    },
+    {
+      "sha": "5633aac9273d262c6b3aac2234798a1b4d105fb2",
+      "date": "2026-09-21",
+      "author": "SuryaNarayanaa",
+      "subject": "Add multi-computer lab workflow"
+    },
+    {
+      "sha": "a6aa81f106e9642b8be8cf0772b13d9d9726dce3",
+      "date": "2026-09-21",
+      "author": "Karthick-1905",
+      "subject": "Add centralized MLflow tracking and BERT-500M profile for distributed training"
+    },
+    {
+      "sha": "093f4e32bdae3f99ebc655eccdad2a4fa9f90857",
+      "date": "2026-09-21",
+      "author": "Karthick-1905",
+      "subject": "Auto-start MLflow server on master and add connectivity validation"
+    },
+    {
+      "sha": "dcb09b4a475299ba6965814fb27c22073318d42c",
+      "date": "2026-10-03",
+      "author": "SuryaNarayanaa",
+      "subject": "Add Docker workflows for CPU and CUDA training"
+    },
+    {
+      "sha": "e0c0507c22a67c837901094777cb70680aca1bfe",
+      "date": "2026-10-04",
+      "author": "SuryaNarayanaa",
+      "subject": "Document and configure published Docker images"
+    }
+  ],
+  "ci": {
+    "conclusion": "success",
+    "headSha": "e0c0507c22a67c837901094777cb70680aca1bfe",
+    "jobs": [
+      {
+        "completedAt": "2026-10-04T15:42:09Z",
+        "conclusion": "success",
+        "databaseId": 111470194478,
+        "name": "cpu",
+        "startedAt": "2026-10-04T15:39:34Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-10-04T15:39:37Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-04T15:39:35Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-04T15:39:37Z",
+            "conclusion": "success",
+            "name": "Run actions/checkout@v4",
+            "number": 2,
+            "startedAt": "2026-10-04T15:39:37Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-04T15:39:42Z",
+            "conclusion": "success",
+            "name": "Run docker/setup-buildx-action@v3",
+            "number": 3,
+            "startedAt": "2026-10-04T15:39:37Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-04T15:40:30Z",
+            "conclusion": "success",
+            "name": "Build CPU image",
+            "number": 4,
+            "startedAt": "2026-10-04T15:39:42Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-04T15:40:30Z",
+            "conclusion": "success",
+            "name": "Validate Compose",
+            "number": 5,
+            "startedAt": "2026-10-04T15:40:30Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-04T15:41:18Z",
+            "conclusion": "success",
+            "name": "Existing test suite and CPU smoke",
+            "number": 6,
+            "startedAt": "2026-10-04T15:40:30Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-04T15:41:23Z",
+            "conclusion": "success",
+            "name": "Train across two containers",
+            "number": 7,
+            "startedAt": "2026-10-04T15:41:18Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-04T15:42:00Z",
+            "conclusion": "success",
+            "name": "MLflow server and training demo",
+            "number": 8,
+            "startedAt": "2026-10-04T15:41:23Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-04T15:42:00Z",
+            "conclusion": "success",
+            "name": "Show service logs",
+            "number": 9,
+            "startedAt": "2026-10-04T15:42:00Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-04T15:42:01Z",
+            "conclusion": "success",
+            "name": "Save measurements",
+            "number": 10,
+            "startedAt": "2026-10-04T15:42:00Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-04T15:42:01Z",
+            "conclusion": "success",
+            "name": "Stop containers",
+            "number": 11,
+            "startedAt": "2026-10-04T15:42:01Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-04T15:42:02Z",
+            "conclusion": "success",
+            "name": "Post Build CPU image",
+            "number": 20,
+            "startedAt": "2026-10-04T15:42:01Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-04T15:42:07Z",
+            "conclusion": "success",
+            "name": "Post Run docker/setup-buildx-action@v3",
+            "number": 21,
+            "startedAt": "2026-10-04T15:42:02Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-04T15:42:08Z",
+            "conclusion": "success",
+            "name": "Post Run actions/checkout@v4",
+            "number": 22,
+            "startedAt": "2026-10-04T15:42:07Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-04T15:42:08Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 23,
+            "startedAt": "2026-10-04T15:42:08Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Mohanakumarp/DT-FM/actions/runs/37213825415/job/111470194478"
+      },
+      {
+        "completedAt": "2026-10-04T15:41:08Z",
+        "conclusion": "success",
+        "databaseId": 111470194737,
+        "name": "cuda-build",
+        "startedAt": "2026-10-04T15:39:34Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-10-04T15:39:35Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-04T15:39:35Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-04T15:39:36Z",
+            "conclusion": "success",
+            "name": "Run actions/checkout@v4",
+            "number": 2,
+            "startedAt": "2026-10-04T15:39:35Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-04T15:39:42Z",
+            "conclusion": "success",
+            "name": "Run docker/setup-buildx-action@v3",
+            "number": 3,
+            "startedAt": "2026-10-04T15:39:36Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-04T15:40:59Z",
+            "conclusion": "success",
+            "name": "Build CUDA image (no GPU execution on hosted runner)",
+            "number": 4,
+            "startedAt": "2026-10-04T15:39:42Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-04T15:41:00Z",
+            "conclusion": "success",
+            "name": "Post Build CUDA image (no GPU execution on hosted runner)",
+            "number": 6,
+            "startedAt": "2026-10-04T15:40:59Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-04T15:41:07Z",
+            "conclusion": "success",
+            "name": "Post Run docker/setup-buildx-action@v3",
+            "number": 7,
+            "startedAt": "2026-10-04T15:41:00Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-04T15:41:07Z",
+            "conclusion": "success",
+            "name": "Post Run actions/checkout@v4",
+            "number": 8,
+            "startedAt": "2026-10-04T15:41:07Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-04T15:41:07Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 9,
+            "startedAt": "2026-10-04T15:41:07Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/Mohanakumarp/DT-FM/actions/runs/37213825415/job/111470194737"
+      }
+    ],
+    "updatedAt": "2026-10-04T15:42:10Z",
+    "url": "https://github.com/Mohanakumarp/DT-FM/actions/runs/37213825415"
+  },
+  "ci_test_summary": [
+    "cpu\tExisting test suite and CPU smoke\t2026-10-04T15:41:07.6847785Z Ran 61 tests in 35.024s"
+  ],
+  "presentation": "GPU Tasklet scheduling - Review 1.pptx",
+  "guide_confirmation": {
+    "name": "Dr. Jayashree L S",
+    "department": "Computer Science and Engineering",
+    "source": "User clarification"
+  },
+  "logo_url": "https://www.psgtech.edu/images/logo.png",
+  "scope_note": "Uncommitted mT5 workspace work is not covered by the committed-baseline CI."
+}

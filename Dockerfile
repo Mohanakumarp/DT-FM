@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY --from=uv /uv /usr/local/bin/uv
 RUN UV_HTTP_TIMEOUT=600 uv pip install --python /opt/venv/bin/python torch==2.8.0 --index-url https://download.pytorch.org/whl/cu126
-COPY requirements.txt requirements-mlflow.txt ./
+COPY requirements.txt requirements-mlflow.txt requirements-mt5.txt ./
 COPY docker/requirements.txt ./docker/requirements.txt
 RUN UV_HTTP_TIMEOUT=600 uv pip install --python /opt/venv/bin/python -r docker/requirements.txt cupy-cuda12x==13.6.0 \
     && uv pip check --python /opt/venv/bin/python \
@@ -46,7 +46,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY --from=uv /uv /usr/local/bin/uv
 RUN uv pip install --python /usr/local/bin/python torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
-COPY requirements.txt requirements-mlflow.txt ./
+COPY requirements.txt requirements-mlflow.txt requirements-mt5.txt ./
 COPY docker/requirements.txt ./docker/requirements.txt
 RUN uv pip install --python /usr/local/bin/python -r docker/requirements.txt \
     && uv pip check --python /usr/local/bin/python

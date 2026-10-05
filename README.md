@@ -11,6 +11,9 @@ This is a research project developed by [DS3Lab@ETH Zurich](https://ds3lab.inf.e
 
 ## Docker
 
+For pretrained mT5 encoder–decoder fine-tuning across two machines on Tamil
+XL-Sum, see [the Tamil summarisation workflow](./MT5_TAMIL.md).
+
 Run a CPU training smoke test from a clone on Linux, Windows, or macOS:
 
 ```bash
