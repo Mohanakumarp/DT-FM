@@ -110,10 +110,11 @@ docker compose run --rm -e DTFM_WORLD_SIZE=4 train smoke --num-iters 10
 
 ## Datasets and custom training
 
-For `google/mt5-small` fine-tuning on Tamil XL-Sum across two machines, use
-the separate [mT5 pipeline workflow](./MT5_TAMIL.md). Its `mt5` entry point
-supports CPU or NVIDIA computation and saves mergeable encoder/decoder
-checkpoints.
+For runtime-selected summarisation models, datasets, and any positive total rank
+count, use [the configurable summarisation workflow](./DISTRIBUTED_SUMMARIZATION.md).
+The `summarize` entry point (`mt5` alias) supports CPU or NVIDIA computation,
+mT5 block partitions with data replicas, and other model families through
+full-model data parallelism. Workers can use the image alone.
 
 Download QQP and its tokenizer vocabulary into the persistent `datasets` volume:
 

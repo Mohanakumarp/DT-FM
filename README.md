@@ -11,8 +11,13 @@ This is a research project developed by [DS3Lab@ETH Zurich](https://ds3lab.inf.e
 
 ## Docker
 
-For pretrained mT5 encoder–decoder fine-tuning across two machines on Tamil
-XL-Sum, see [the Tamil summarisation workflow](./MT5_TAMIL.md).
+For configurable laptop counts, runtime-selected encoder–decoder or causal models,
+and Hugging Face/local summarisation datasets, see
+[distributed summarisation](./DISTRIBUTED_SUMMARIZATION.md).
+The [Tamil mT5 example](./MT5_TAMIL.md) and
+[Linux/Windows Tailscale commands](./MT5_TAILSCALE.md) use the same published image.
+For sparse data-replica gradient exchange with Top-K or DGC, see
+[gradient compression](./GRADIENT_COMPRESSION.md).
 
 Run a CPU training smoke test from a clone on Linux, Windows, or macOS:
 
