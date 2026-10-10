@@ -179,13 +179,16 @@ Per-host volume paths under `/app/logs/qa-6rank/rankN/` contain:
 - `metrics.jsonl`: completed-step losses/timing and the final summary.
 - `summary.json`: completed steps, throughput, training wall time, rank-local
   peak CUDA allocated bytes and global SQuAD F1/exact match.
-- `checkpoint.pt`: this stage's weights and optimizer state, saved at completion.
+- `checkpoint.pt`: this stage's latest weights, optimizer state, Torch RNG state
+  and optional compression buffers, saved after every optimizer step by default.
+- `checkpoint-step-*.pt`: the latest two checkpoint versions for recovery.
 - `config.json`, and tokenizer files on replica leaders.
 
 Rank 0 also writes `predictions.json`. Throughput counts tokenized features,
 excludes the first ten optimizer steps by default, and uses the slowest rank's
-summed measured step time. Training wall time includes all training steps and
-excludes downloads, initialization, validation and checkpoint saves. Peak GPU
+summed measured step time, excluding checkpoint I/O. Training wall time includes
+all training steps and checkpoint saves, and excludes downloads, initialization
+and validation. `checkpoint_seconds` reports rank-local save time. Peak GPU
 allocated bytes covers this process's allocated CUDA tensors, not total device
 usage. Initialization of the complete model is in CPU RAM.
 
@@ -206,19 +209,59 @@ python scripts/assemble_mt5_checkpoint.py \
 ```
 
 Despite its historical filename, the assembler recognizes QA checkpoints and
-exports `BertForQuestionAnswering` weights. The QA runner does not implement
-checkpoint resume, periodic saves, automatic failure recovery or dynamic rank
-membership. Optional Top-K data-gradient compression retains AdamW and saves
-CPU error-feedback buffers; see the larger-model guide. Repeating a launch in
-the same output directory overwrites that directory's rank artifacts; use a new directory per
-repetition/topology.
+exports `BertForQuestionAnswering` weights. Optional Top-K data-gradient
+compression retains AdamW and saves CPU error-feedback buffers; see the
+larger-model guide. Use a new output directory for each independent experiment.
+
+## Checkpoints and interrupted runs
+
+The updated runner defaults to `--checkpoint-every 1`. It saves after every
+completed optimizer update, before validation, on every rank. Choose
+`--checkpoint-every 5` to save every five steps, or `0` to save only before final
+validation. Each rank stores its own partition in its local `dtfm-logs` volume;
+all data replicas also retain their own optimizer, compression and RNG state.
+Saving large-model optimizer states every step can add substantial disk I/O.
+
+A `checkpoint_saved` record confirms that all ranks have saved that step. Writes
+use temporary files and atomic replacement; the latest two versioned files are
+retained. If a laptop fails while writing a new checkpoint, restart all ranks:
+resume selects the newest version available on every rank, so it can fall back
+to the previous saved step. The fixed-size process group cannot continue training
+with one laptop missing; automatic worker recovery is not implemented.
+
+For the user's four-rank/two-stage run, retain `--output-dir logs/qa-4rank` and
+add this flag to the **training** part of every Linux/Windows command:
+
+```text
+--resume
+```
+
+Keep model, dataset, seed, batch/microbatch settings, stage count, rank count,
+learning rate and compression configuration unchanged. The runner restores
+weights, optimizer state, Torch RNG state, compression residuals and the next
+data batch; it rejects mismatched saved settings or different training data.
+`--epochs` and `--max-steps` specify total budgets, including steps already saved,
+and may be increased. Each rank reloads its own checkpoint. Restoring only ranks
+0 and 1 is sufficient for model export, but restarting four-rank training also
+requires ranks 2 and 3's local checkpoint versions.
+
+Resume retains progress records, trims step metrics newer than the common saved
+checkpoint, and appends new step metrics. The new summary describes the restart
+session and records `resumed_from_step`. Starting a fresh run in an output
+directory containing checkpoints is rejected; choose a new directory instead.
+
+This requires rebuilding/pushing `suryanarayanaant/dtfm:cuda` and pulling it on
+every host. It cannot recover unsaved updates from the older runner, which only
+saved checkpoints after training and validation finished. Older final-only
+checkpoints can be assembled for inference, but are not resumable with this path.
 
 ## Verification
 
 Local tests cover full-model versus partitioned logits/loss/all-parameter
 gradients, answer labels in overflow windows, example-level answer scoring,
 real six-process Gloo training, equal weights across replicas, global loss
-normalization, progress logs and checkpoint assembly. A real pretrained-model
+normalization, progress logs, checkpoint assembly, dense/Top-K resume equivalence
+and fallback when one rank lacks the latest version. A real pretrained-model
 SQuAD pilot is also exercised locally. These CPU tests do not establish physical
 Windows/Tailscale or NVIDIA execution, accuracy after full fine-tuning, or speedup.
 

@@ -7,7 +7,7 @@ import time
 
 
 class TrainingProgress:
-    def __init__(self, rank, output_dir, interval=15):
+    def __init__(self, rank, output_dir, interval=15, append=False):
         self.rank = rank
         self.started = self.phase_started = time.monotonic()
         self.current_phase = "starting"
@@ -16,7 +16,7 @@ class TrainingProgress:
         self.stopped = threading.Event()
         root = Path(output_dir) / ("rank%d" % rank)
         root.mkdir(parents=True, exist_ok=True)
-        self.file = (root / "progress.jsonl").open("w")
+        self.file = (root / "progress.jsonl").open("a" if append else "w")
         self.phase("starting")
         self.thread = threading.Thread(target=self._heartbeat, args=(interval,), daemon=True)
         self.thread.start()

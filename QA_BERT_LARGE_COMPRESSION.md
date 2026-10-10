@@ -139,8 +139,12 @@ describe this rank's encoded representation. They include values and indices,
 but exclude protocol traffic, pipeline activations and peer replication.
 
 Checkpoint files preserve each rank's compressor buffers and completed
-compression steps. The QA runner does not yet support checkpoint resume; its
-exported model contains updated model weights, not pending residuals. Progress
+compression steps. The QA runner saves every optimizer step by default and
+supports `--resume` on all ranks to restore the newest step available everywhere;
+see [checkpoint recovery](./QA_TAILSCALE.md#checkpoints-and-interrupted-runs).
+Large-model optimizer checkpoints can add significant disk I/O; set
+`--checkpoint-every 5` to save every five steps when that tradeoff is acceptable.
+The exported model contains updated model weights, not pending residuals. Progress
 logs, metrics, summary and checkpoint paths follow the same volume layout as
 the smaller QA experiment.
 

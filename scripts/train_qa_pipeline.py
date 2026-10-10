@@ -3,6 +3,7 @@
 import argparse
 from datetime import timedelta
 import json
+import hashlib
 import math
 from pathlib import Path
 import sys
@@ -21,6 +22,7 @@ from task_datasets.question_answering import tokenize_qa, score_predictions
 from scripts.train_mt5_pipeline import send, receive, clip_gradients
 from utils.training_progress import TrainingProgress
 from utils.gradient_compression import SparseGradientSynchronizer
+from utils.qa_checkpoints import checkpoint_candidates, collect_errors, load_common_checkpoint, save_checkpoint
 
 
 def parse_args():
@@ -53,6 +55,8 @@ def parse_args():
     parser.add_argument("--timeout-seconds", type=int, default=300)
     parser.add_argument("--log-interval", type=float, default=15, help="seconds between progress heartbeats")
     parser.add_argument("--output-dir", default="logs/qa-squad")
+    parser.add_argument("--checkpoint-every", type=int, default=1, help="save every N optimizer steps; 0 saves only before validation")
+    parser.add_argument("--resume", action="store_true", help="resume the newest checkpoint step available on every rank in output-dir")
     parser.add_argument("--smoke", action="store_true", help="tiny random BERT and synthetic spans; no downloads")
     parser.add_argument("--prepare-only", action="store_true", help="cache model, tokenizer and tokenized SQuAD before joining ranks")
     args = parser.parse_args()
@@ -68,6 +72,8 @@ def parse_args():
         parser.error("lr and max-grad-norm must be finite and positive")
     if not math.isfinite(args.log_interval) or args.log_interval <= 0:
         parser.error("log-interval must be finite and positive")
+    if args.checkpoint_every < 0:
+        parser.error("checkpoint-every must be nonnegative")
     args.replicas = args.world_size // args.pipeline_size
     if not 0 < args.compression_keep_ratio <= args.compression_warmup_ratio <= 1:
         parser.error("require 0 < compression-keep-ratio <= compression-warmup-ratio <= 1")
@@ -341,7 +347,10 @@ def run(args, progress=None):
                     training = features["train"].with_format("torch", columns=columns)
                     sampler = torch.utils.data.DistributedSampler(training, num_replicas=args.replicas,
                                                                  rank=args.replica_rank, seed=args.seed)
-                    train = torch.utils.data.DataLoader(training, batch_size=args.batch_size, sampler=sampler)
+                    train = torch.utils.data.DataLoader(
+                        training, batch_size=args.batch_size, sampler=sampler,
+                        generator=torch.Generator().manual_seed(args.seed),
+                    )
             except Exception as error:
                 data_error = str(error)
         phase("waiting_for_replica_dataset_preparation")
@@ -360,6 +369,28 @@ def run(args, progress=None):
         dist.broadcast_object_list(run_id, src=0)
         root = Path(args.output_dir) / ("rank%d" % args.rank)
         root.mkdir(parents=True, exist_ok=True)
+        identity = {key: value for key, value in signature.items() if key not in
+                    ("resume", "epochs", "max_steps", "checkpoint_every", "warmup_steps",
+                     "dist_url", "timeout_seconds", "log_interval", "prepare_only")}
+        identity["training_batches"], identity["training_features"] = counts.tolist()
+        data_hash = [hashlib.sha256(json.dumps(examples["train"].to_dict(), sort_keys=True).encode()).hexdigest()
+                     if examples is not None else None]
+        dist.broadcast_object_list(data_hash, src=args.pipeline_leader, group=args.pipeline_group)
+        identity["training_data_sha256"] = data_hash[0]
+        identities = [None] * args.world_size
+        dist.all_gather_object(identities, identity)
+        if any(value != identities[0] for value in identities):
+            raise ValueError("Replicas have different training data")
+        error = None
+        try:
+            if not args.resume and (checkpoint_candidates(root) or (root / "checkpoint.pt").exists()):
+                raise ValueError("Existing checkpoints in output-dir; use --resume or a new output directory")
+            config.save_pretrained(root)
+            if tokenizer is not None:
+                tokenizer.save_pretrained(root)
+        except Exception as exception:
+            error = str(exception)
+        collect_errors(error)
         print(json.dumps({"event": "ready", "rank": args.rank, "replica": args.replica_rank,
                           "pipeline_stage": args.pipeline_rank, "units": [stage.start, stage.end],
                           "parameters": sum(p.numel() for p in stage.parameters()), "device": str(device),
@@ -367,15 +398,38 @@ def run(args, progress=None):
                           "gradient_compression": args.gradient_compression,
                           "train_features": counts[1].item(), "global_batch_size": args.batch_size * args.replicas}), flush=True)
         torch.manual_seed(args.seed + args.rank)  # replica-specific dropout, identical initial weights
-        step = measured_examples = measured_steps = 0
-        measured_seconds = 0.0
+        step = 0
+        if args.resume:
+            phase("loading_checkpoint")
+            checkpoint = load_common_checkpoint(root, args, identity, stage, optimizer, compressor)
+            step = checkpoint["step"]
+            run_id[0] = checkpoint["run_id"]
+            print(json.dumps({"event": "resumed", "rank": args.rank, "step": step}), flush=True)
+        resumed_from = step
+        measured_examples = measured_steps = 0
+        measured_seconds = checkpoint_seconds = 0.0
         start_time = time.monotonic()
-        with (root / "metrics.jsonl").open("w") as metrics:
-            for epoch in range(args.epochs):
+        if args.resume and (root / "metrics.jsonl").exists():
+            retained = []
+            for line in (root / "metrics.jsonl").read_text().splitlines():
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if "train_loss" in record and record["step"] <= step:
+                    retained.append(line)
+            (root / "metrics.jsonl").write_text("".join(line + "\n" for line in retained))
+        saved_step = step if args.resume else None
+        with (root / "metrics.jsonl").open("a" if args.resume else "w") as metrics:
+            for epoch in range(step // counts[0].item(), args.epochs):
                 if sampler is not None:
                     sampler.set_epoch(epoch)
                 iterator = iter(train) if args.pipeline_rank == 0 else None
-                for _ in range(counts[0].item()):
+                skip = step % counts[0].item() if epoch == resumed_from // counts[0].item() else 0
+                for _ in range(skip):
+                    if iterator is not None:
+                        next(iterator)
+                for _ in range(skip, counts[0].item()):
                     if args.max_steps and step >= args.max_steps:
                         break
                     stage.train()
@@ -407,8 +461,20 @@ def run(args, progress=None):
                     metrics.write(json.dumps(record) + "\n")
                     metrics.flush()
                     print(json.dumps({"rank": args.rank, **record}), flush=True)
+                    if args.checkpoint_every and step % args.checkpoint_every == 0:
+                        phase("saving_checkpoint", step=step)
+                        checkpoint_started = time.monotonic()
+                        save_checkpoint(root, args, stage, optimizer, compressor, step, run_id[0], identity)
+                        checkpoint_seconds += time.monotonic() - checkpoint_started
+                        saved_step = step
+                        print(json.dumps({"event": "checkpoint_saved", "rank": args.rank, "step": step}), flush=True)
                 if args.max_steps and step >= args.max_steps:
                     break
+            if saved_step != step:
+                phase("saving_checkpoint", step=step)
+                checkpoint_started = time.monotonic()
+                save_checkpoint(root, args, stage, optimizer, compressor, step, run_id[0], identity)
+                checkpoint_seconds += time.monotonic() - checkpoint_started
             training_wall = torch.tensor(time.monotonic() - start_time, dtype=torch.float64)
             window = torch.tensor(measured_seconds, dtype=torch.float64)
             dist.all_reduce(training_wall, op=dist.ReduceOp.MAX)
@@ -420,6 +486,8 @@ def run(args, progress=None):
                        "gradient_compression": args.gradient_compression,
                        "compression_keep_ratio": args.compression_keep_ratio if compressor else None,
                        "completed_steps": step, "measured_steps": measured_steps,
+                       "resumed_from_step": resumed_from, "session_steps": step - resumed_from,
+                       "checkpoint_seconds": checkpoint_seconds,
                        "measured_features": measured_examples, "measured_seconds": window.item(),
                        "features_per_second": measured_examples / window.item() if window.item() else None,
                        "training_wall_seconds": training_wall.item(),
@@ -427,17 +495,6 @@ def run(args, progress=None):
                        "smoke": args.smoke, **evaluation}
             (root / "summary.json").write_text(json.dumps(summary, indent=2))
             metrics.write(json.dumps(summary) + "\n")
-            phase("saving_checkpoint")
-            torch.save({"task": "qa", "rank": args.rank, "step": step, "model": args.model,
-                        "smoke": args.smoke, "run_id": run_id[0], "world_size": args.world_size,
-                        "pipeline_size": args.pipeline_size, "boundaries": boundaries, "partition_version": 1,
-                        "gradient_compression": args.gradient_compression,
-                        "compressor": compressor.state_dict() if compressor else None,
-                        "pretrained": stage.pretrained_state_dict(), "optimizer": optimizer.state_dict()},
-                       root / "checkpoint.pt")
-            config.save_pretrained(root)
-            if tokenizer is not None:
-                tokenizer.save_pretrained(root)
             print(json.dumps({"event": "complete", **summary}), flush=True)
             phase("complete", completed_steps=step)
     finally:
@@ -446,7 +503,7 @@ def run(args, progress=None):
 
 if __name__ == "__main__":
     arguments = parse_args()
-    logger = TrainingProgress(arguments.rank, arguments.output_dir, arguments.log_interval)
+    logger = TrainingProgress(arguments.rank, arguments.output_dir, arguments.log_interval, append=arguments.resume)
     try:
         run(arguments, logger)
     except Exception as error:

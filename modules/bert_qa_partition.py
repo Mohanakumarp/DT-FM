@@ -49,6 +49,16 @@ class BertQAPartition(nn.Module):
             state.update({"qa_outputs." + key: value for key, value in self.qa_outputs.state_dict().items()})
         return state
 
+    def load_pretrained_state_dict(self, state):
+        local = self.pretrained_state_dict()
+        if local.keys() != state.keys():
+            raise ValueError("Checkpoint parameters do not match this BERT partition")
+        with torch.no_grad():
+            for name, value in local.items():
+                if value.shape != state[name].shape:
+                    raise ValueError("Checkpoint parameter shape differs: " + name)
+                value.copy_(state[name])
+
 
 def span_loss(logits, starts, ends):
     # Mean of start/end cross-entropies, summed over examples. The caller

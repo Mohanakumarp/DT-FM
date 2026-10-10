@@ -114,6 +114,73 @@ class QAPipelineTests(unittest.TestCase):
                                               "--compression-warmup-steps", "1",
                                               "--compression-bucket-size", "1024"])
 
+    def test_resume_restores_dense_and_compressed_updates_and_falls_back_to_common_step(self):
+        repository = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def launch(output, steps, flags=(), resume=False):
+                with socket.socket() as sock:
+                    sock.bind(("127.0.0.1", 0))
+                    port = sock.getsockname()[1]
+                processes, handles = [], []
+                try:
+                    for rank in range(4):
+                        handle = (root / ("launch-%d-%d.log" % (steps, rank))).open("w")
+                        handles.append(handle)
+                        command = [sys.executable, "scripts/train_qa_pipeline.py", "--smoke", "--rank", str(rank),
+                                   "--world-size", "4", "--pipeline-size", "2", "--batch-size", "4",
+                                   "--micro-batch-size", "3", "--epochs", "3", "--max-steps", str(steps),
+                                   "--warmup-steps", "0", "--timeout-seconds", "60", "--output-dir", str(output),
+                                   "--dist-url", "tcp://127.0.0.1:%d" % port, *flags]
+                        if resume:
+                            command.append("--resume")
+                        processes.append(subprocess.Popen(command, cwd=repository, stdout=handle, stderr=subprocess.STDOUT,
+                                                          env={**os.environ, "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"}))
+                    for rank, process in enumerate(processes):
+                        self.assertEqual(process.wait(timeout=100), 0, (root / ("launch-%d-%d.log" % (steps, rank))).read_text())
+                finally:
+                    for process in processes:
+                        if process.poll() is None:
+                            process.kill()
+                        process.wait()
+                    for handle in handles:
+                        handle.close()
+
+            for mode in ("none", "topk"):
+                with self.subTest(compression=mode):
+                    flags = ("--gradient-compression", mode)
+                    if mode == "topk":
+                        flags += ("--compression-bucket-size", "1024", "--compression-warmup-steps", "1")
+                    continuous, recovered = root / (mode + "-continuous"), root / (mode + "-recovered")
+                    launch(continuous, 3, flags)
+                    launch(recovered, 2, flags)
+                    if mode == "none":
+                        # A failed save can leave the newest version absent on one
+                        # host. Its checkpoint.pt may still point at that update;
+                        # resume must select step 1 from the immutable versions.
+                        for path in (recovered / "rank3").glob("checkpoint-step-00000002-*.pt"):
+                            path.unlink()
+                    launch(recovered, 3, flags, resume=True)
+                    for rank in range(4):
+                        expected = torch.load(continuous / ("rank%d/checkpoint.pt" % rank), weights_only=True)
+                        actual = torch.load(recovered / ("rank%d/checkpoint.pt" % rank), weights_only=True)
+                        for key in expected["pretrained"]:
+                            torch.testing.assert_close(actual["pretrained"][key], expected["pretrained"][key], rtol=0, atol=0)
+                        for index, state in expected["optimizer"]["state"].items():
+                            for key, value in state.items():
+                                torch.testing.assert_close(actual["optimizer"]["state"][index][key], value, rtol=0, atol=0)
+                        torch.testing.assert_close(actual["rng_cpu"], expected["rng_cpu"], rtol=0, atol=0)
+                        if mode == "topk":
+                            self.assertEqual(actual["compressor"]["completed_steps"], 3)
+                            for actual_buffer, expected_buffer in zip(actual["compressor"]["residuals"], expected["compressor"]["residuals"]):
+                                torch.testing.assert_close(actual_buffer, expected_buffer, rtol=0, atol=0)
+                        self.assertEqual(len(list((recovered / ("rank%d" % rank)).glob("checkpoint-step-*.pt"))), 2)
+                        summary = json.loads((recovered / ("rank%d/summary.json" % rank)).read_text())
+                        self.assertEqual(summary["resumed_from_step"], 1 if mode == "none" else 2)
+                    records = [json.loads(line) for line in (recovered / "rank0/metrics.jsonl").read_text().splitlines()]
+                    self.assertEqual([record["step"] for record in records if "train_loss" in record], [1, 2, 3])
+
     def _check_distributed_training(self, world_size, pipeline_size, extra_args=None):
         repository = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as directory:
