@@ -11,6 +11,9 @@ This is a research project developed by [DS3Lab@ETH Zurich](https://ds3lab.inf.e
 
 ## Docker
 
+For BERT-Mini question answering on SQuAD with two three-stage pipeline
+replicas and progress heartbeats, see [QA over Tailscale](./QA_TAILSCALE.md).
+
 For configurable laptop counts, runtime-selected encoder–decoder or causal models,
 and Hugging Face/local summarisation datasets, see
 [distributed summarisation](./DISTRIBUTED_SUMMARIZATION.md).

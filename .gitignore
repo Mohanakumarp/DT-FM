@@ -50,6 +50,7 @@ mlartifacts/
 mlruns/
 logs/mlflow-demo/
 logs/lab/
+logs/qa-*/
 task_datasets/data/
 .lab-tools/
 task_datasets/data/wikitext-103/

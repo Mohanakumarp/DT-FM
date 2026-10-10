@@ -2,6 +2,10 @@
 set -euo pipefail
 
 case "${1:-smoke}" in
+  qa)
+    shift
+    exec python -u /app/scripts/train_qa_pipeline.py --device "${DTFM_DEVICE:-cpu}" "$@"
+    ;;
   mt5|summarize)
     shift
     exec python -u /app/scripts/train_mt5_pipeline.py --device "${DTFM_DEVICE:-cpu}" "$@"

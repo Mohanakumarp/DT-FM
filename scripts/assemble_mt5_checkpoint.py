@@ -3,7 +3,7 @@
 import argparse
 from pathlib import Path
 import torch
-from transformers import AutoTokenizer, AutoConfig, AutoModelForSeq2SeqLM, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoConfig, AutoModelForSeq2SeqLM, AutoModelForCausalLM, AutoModelForQuestionAnswering
 
 
 def assemble(encoder_dir=None, decoder_dir=None, output_dir=None, head_dir=None, rank_dirs=None):
@@ -20,7 +20,7 @@ def assemble(encoder_dir=None, decoder_dir=None, output_dir=None, head_dir=None,
             raise ValueError("Expected checkpoint directories in pipeline order from the same replica")
         if checkpoint.get("pipeline_size", checkpoint.get("world_size", 2)) != len(directories):
             raise ValueError("Provide all pipeline stage directories using --rank-dirs (or --head-dir for legacy three-rank runs)")
-        for key in ("step", "model", "smoke", "run_id", "world_size", "pipeline_size", "boundaries", "partition_version"):
+        for key in ("task", "step", "model", "smoke", "run_id", "world_size", "pipeline_size", "boundaries", "partition_version"):
             if encoder.get(key) != checkpoint.get(key):
                 raise ValueError("Checkpoints differ in " + key)
     configs = [AutoConfig.from_pretrained(root) for root in directories]
@@ -33,7 +33,8 @@ def assemble(encoder_dir=None, decoder_dir=None, output_dir=None, head_dir=None,
         if state.keys() & checkpoint["pretrained"].keys():
             raise ValueError("Checkpoint stage weights overlap")
         state.update(checkpoint["pretrained"])
-    factory = AutoModelForSeq2SeqLM if configs[0].is_encoder_decoder else AutoModelForCausalLM
+    factory = (AutoModelForQuestionAnswering if encoder.get("task") == "qa" else
+               AutoModelForSeq2SeqLM if configs[0].is_encoder_decoder else AutoModelForCausalLM)
     model = factory.from_config(configs[0])
     model.load_state_dict(state, strict=True)
     model.save_pretrained(output_dir)
