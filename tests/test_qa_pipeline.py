@@ -106,6 +106,15 @@ class QAPipelineTests(unittest.TestCase):
             score_predictions(examples, features, predictions + predictions[:1])
 
     def test_six_ranks_three_stages_two_replicas_and_export(self):
+        self._check_distributed_training(6, 3)
+
+    def test_topk_four_ranks_two_stages_two_replicas_and_export(self):
+        self._check_distributed_training(4, 2, ["--gradient-compression", "topk",
+                                              "--compression-keep-ratio", "0.01",
+                                              "--compression-warmup-steps", "1",
+                                              "--compression-bucket-size", "1024"])
+
+    def _check_distributed_training(self, world_size, pipeline_size, extra_args=None):
         repository = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -114,14 +123,14 @@ class QAPipelineTests(unittest.TestCase):
                 port = sock.getsockname()[1]
             processes, logs = [], []
             try:
-                for rank in range(6):
+                for rank in range(world_size):
                     log = (root / ("process%d.log" % rank)).open("w")
                     logs.append(log)
                     command = [sys.executable, "scripts/train_qa_pipeline.py", "--smoke", "--rank", str(rank),
-                               "--world-size", "6", "--pipeline-size", "3", "--batch-size", "4",
+                               "--world-size", str(world_size), "--pipeline-size", str(pipeline_size), "--batch-size", "4",
                                "--micro-batch-size", "3", "--max-steps", "2", "--warmup-steps", "0",
                                "--dist-url", "tcp://127.0.0.1:%d" % port, "--timeout-seconds", "60",
-                               "--output-dir", str(root)]
+                               "--output-dir", str(root)] + (extra_args or [])
                     processes.append(subprocess.Popen(command, cwd=repository, stdout=log, stderr=subprocess.STDOUT,
                                                       env={**os.environ, "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"}))
                 for rank, process in enumerate(processes):
@@ -133,15 +142,25 @@ class QAPipelineTests(unittest.TestCase):
                     process.wait()
                 for log in logs:
                     log.close()
-            for stage in range(3):
+            for stage in range(pipeline_size):
                 expected = torch.load(root / ("rank%d/checkpoint.pt" % stage), weights_only=True)
-                actual = torch.load(root / ("rank%d/checkpoint.pt" % (stage + 3)), weights_only=True)
+                actual = torch.load(root / ("rank%d/checkpoint.pt" % (stage + pipeline_size)), weights_only=True)
                 for key in expected["pretrained"]:
                     torch.testing.assert_close(actual["pretrained"][key], expected["pretrained"][key], rtol=0, atol=0)
+                if extra_args:
+                    self.assertEqual(expected["gradient_compression"], "topk")
+                    self.assertEqual(expected["compressor"]["completed_steps"], 2)
+                    self.assertTrue(any(residual.count_nonzero() for residual in expected["compressor"]["residuals"]))
             records = [json.loads(line) for line in (root / "rank0/metrics.jsonl").read_text().splitlines()]
             self.assertEqual(records[0]["global_features"], 8)
             self.assertEqual(records[-1]["completed_steps"], 2)
             self.assertGreater(records[-1]["features_per_second"], 0)
+            if extra_args:
+                self.assertEqual(records[0]["gradient_keep_ratio"], 0.05)
+                self.assertAlmostEqual(records[1]["gradient_keep_ratio"], 0.01)
+                self.assertGreater(records[1]["gradient_payload_compression"], records[0]["gradient_payload_compression"])
+                self.assertGreater(records[1]["gradient_payload_compression"], 1)
+                self.assertLess(records[1]["gradient_payload_bytes"], records[1]["gradient_dense_bytes"])
             progress = [json.loads(line) for line in (root / "rank0/progress.jsonl").read_text().splitlines()]
             phases = [entry["phase"] for entry in progress]
             self.assertIn("waiting_for_all_ranks", phases)
@@ -161,7 +180,7 @@ class QAPipelineTests(unittest.TestCase):
                 expected_loss = reference(**batch).loss.item()
             self.assertAlmostEqual(records[0]["train_loss"], expected_loss, places=5)
             command = [sys.executable, "scripts/assemble_mt5_checkpoint.py", "--rank-dirs",
-                       *[str(root / ("rank%d" % i)) for i in range(3)], "--output-dir", str(root / "merged")]
+                       *[str(root / ("rank%d" % i)) for i in range(pipeline_size)], "--output-dir", str(root / "merged")]
             result = subprocess.run(command, cwd=repository, capture_output=True, text=True, timeout=40)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             merged = BertForQuestionAnswering.from_pretrained(root / "merged")

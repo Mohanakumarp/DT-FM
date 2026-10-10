@@ -20,6 +20,7 @@ from modules.bert_qa_partition import BertQAPartition, qa_layout, span_loss
 from task_datasets.question_answering import tokenize_qa, score_predictions
 from scripts.train_mt5_pipeline import send, receive, clip_gradients
 from utils.training_progress import TrainingProgress
+from utils.gradient_compression import SparseGradientSynchronizer
 
 
 def parse_args():
@@ -41,6 +42,12 @@ def parse_args():
     parser.add_argument("--max-steps", type=int, default=0, help="optional optimizer-step cap; 0 runs all epochs")
     parser.add_argument("--lr", type=float, default=5e-5)
     parser.add_argument("--max-grad-norm", type=float, default=1.0)
+    parser.add_argument("--gradient-compression", choices=["none", "topk"], default="none",
+                        help="Top-K with error feedback for stage-wise data-replica gradients; retains AdamW")
+    parser.add_argument("--compression-keep-ratio", type=float, default=0.01)
+    parser.add_argument("--compression-warmup-steps", type=int, default=20)
+    parser.add_argument("--compression-warmup-ratio", type=float, default=0.05)
+    parser.add_argument("--compression-bucket-size", type=int, default=4_194_304)
     parser.add_argument("--warmup-steps", type=int, default=10, help="steps excluded from throughput timing")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--timeout-seconds", type=int, default=300)
@@ -62,6 +69,12 @@ def parse_args():
     if not math.isfinite(args.log_interval) or args.log_interval <= 0:
         parser.error("log-interval must be finite and positive")
     args.replicas = args.world_size // args.pipeline_size
+    if not 0 < args.compression_keep_ratio <= args.compression_warmup_ratio <= 1:
+        parser.error("require 0 < compression-keep-ratio <= compression-warmup-ratio <= 1")
+    if args.compression_warmup_steps < 0 or not 1 <= args.compression_bucket_size < 2**31:
+        parser.error("compression-warmup-steps must be nonnegative and bucket-size must be in [1, 2^31)")
+    if args.gradient_compression != "none" and args.replicas < 2:
+        parser.error("gradient compression requires at least two data replicas")
     args.pipeline_rank = args.rank % args.pipeline_size
     args.replica_rank = args.rank // args.pipeline_size
     args.pipeline_leader = args.replica_rank * args.pipeline_size
@@ -201,9 +214,11 @@ def pipeline_batch(stage, batch, args, device, training=True, progress=None, ste
     return loss_sum.item() / global_size.item(), global_size.item(), logits
 
 
-def synchronize_gradients(stage, args):
+def synchronize_gradients(stage, args, compressor=None):
     if args.replicas == 1:
-        return
+        return {}
+    if compressor is not None:
+        return compressor.synchronize(args.data_group)
     parameters = list(stage.parameters())
     packed = torch.cat([p.grad.detach().reshape(-1).cpu() if p.grad is not None else
                         torch.zeros(p.numel()) for p in parameters])
@@ -216,6 +231,9 @@ def synchronize_gradients(stage, args):
         else:
             parameter.grad.copy_(gradient)
         offset += parameter.numel()
+    dense_bytes = packed.numel() * packed.element_size()
+    return {"gradient_dense_bytes": dense_bytes, "gradient_payload_bytes": dense_bytes,
+            "gradient_payload_compression": 1.0}
 
 
 def evaluate(stage, args, device, features, examples, progress=None):
@@ -299,7 +317,17 @@ def run(args, progress=None):
         stage = BertQAPartition(model, args.pipeline_rank, boundaries).to(device)
         config = model.config
         del model
-        optimizer = torch.optim.AdamW(stage.parameters(), lr=args.lr)
+        # Avoid CUDA foreach temporaries proportional to the entire partition
+        # on the 6 GB laptop GPUs used by the larger-model experiment.
+        optimizer = torch.optim.AdamW(stage.parameters(), lr=args.lr, foreach=False)
+        compressor = None
+        if args.gradient_compression == "topk":
+            phase("allocating_gradient_compression_buffers")
+            compressor = SparseGradientSynchronizer(
+                stage.named_parameters(), mode="topk", keep_ratio=args.compression_keep_ratio,
+                warmup_steps=args.compression_warmup_steps, warmup_ratio=args.compression_warmup_ratio,
+                bucket_size=args.compression_bucket_size,
+            )
         tokenizer = examples = features = train = sampler = None
         data_error = None
         if args.pipeline_rank == 0:
@@ -336,6 +364,7 @@ def run(args, progress=None):
                           "pipeline_stage": args.pipeline_rank, "units": [stage.start, stage.end],
                           "parameters": sum(p.numel() for p in stage.parameters()), "device": str(device),
                           "pipeline_size": args.pipeline_size, "data_replicas": args.replicas,
+                          "gradient_compression": args.gradient_compression,
                           "train_features": counts[1].item(), "global_batch_size": args.batch_size * args.replicas}), flush=True)
         torch.manual_seed(args.seed + args.rank)  # replica-specific dropout, identical initial weights
         step = measured_examples = measured_steps = 0
@@ -355,9 +384,11 @@ def run(args, progress=None):
                     batch = next(iterator) if iterator is not None else None
                     optimizer.zero_grad(set_to_none=True)
                     loss, count, _ = pipeline_batch(stage, batch, args, device, progress=progress, step=step + 1)
-                    phase("synchronizing_data_replica_gradients", step=step + 1)
+                    phase("synchronizing_data_replica_gradients", step=step + 1,
+                          gradient_compression=args.gradient_compression,
+                          gradient_keep_ratio=compressor.current_keep_ratio() if compressor else 1.0)
                     sync_started = time.monotonic()
-                    synchronize_gradients(stage, args)
+                    communication = synchronize_gradients(stage, args, compressor)
                     sync_seconds = time.monotonic() - sync_started
                     phase("clipping_gradients", step=step + 1)
                     clip_gradients(stage, args.max_grad_norm, args)
@@ -372,7 +403,7 @@ def run(args, progress=None):
                         measured_examples += count
                         measured_steps += 1
                     record = {"step": step, "epoch": epoch + 1, "train_loss": loss, "seconds": seconds,
-                              "gradient_sync_seconds": sync_seconds, "global_features": count}
+                              "gradient_sync_seconds": sync_seconds, "global_features": count, **communication}
                     metrics.write(json.dumps(record) + "\n")
                     metrics.flush()
                     print(json.dumps({"rank": args.rank, **record}), flush=True)
@@ -386,6 +417,8 @@ def run(args, progress=None):
             evaluation = {} if args.smoke else evaluate(stage, args, device, features, examples, progress)
             summary = {"run_id": run_id[0], "rank": args.rank, "world_size": args.world_size,
                        "pipeline_size": args.pipeline_size, "data_replicas": args.replicas,
+                       "gradient_compression": args.gradient_compression,
+                       "compression_keep_ratio": args.compression_keep_ratio if compressor else None,
                        "completed_steps": step, "measured_steps": measured_steps,
                        "measured_features": measured_examples, "measured_seconds": window.item(),
                        "features_per_second": measured_examples / window.item() if window.item() else None,
@@ -398,6 +431,8 @@ def run(args, progress=None):
             torch.save({"task": "qa", "rank": args.rank, "step": step, "model": args.model,
                         "smoke": args.smoke, "run_id": run_id[0], "world_size": args.world_size,
                         "pipeline_size": args.pipeline_size, "boundaries": boundaries, "partition_version": 1,
+                        "gradient_compression": args.gradient_compression,
+                        "compressor": compressor.state_dict() if compressor else None,
                         "pretrained": stage.pretrained_state_dict(), "optimizer": optimizer.state_dict()},
                        root / "checkpoint.pt")
             config.save_pretrained(root)

@@ -4,6 +4,11 @@
 The default remains dense synchronization with Adafactor. Docker's `summarize`
 and `mt5` commands forward these flags; rebuild the image to include this code.
 
+The BERT QA runner also supports `--gradient-compression none|topk`, retaining
+AdamW. Its gradients are normalized by global feature count, rather than target
+tokens. See [BERT-Large QA commands](./QA_BERT_LARGE_COMPRESSION.md) for a
+four-rank example and QA-specific compression warm-up defaults.
+
 ## Choose the topology first
 
 Compression exchanges parameter gradients between **data replicas of the same

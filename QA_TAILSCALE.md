@@ -7,6 +7,9 @@ head. The default data is a seeded 8,000-question training subset and a seeded
 256-token windows with stride 64. Metrics count each original validation question
 once, combining predictions across all its windows before exact-match/F1 scoring.
 
+For a 334M-parameter BERT-Large run on four 6 GB NVIDIA GPUs with Top-K
+gradient compression, see [the larger-model commands](./QA_BERT_LARGE_COMPRESSION.md).
+
 This code is new. Existing Docker images do not contain `qa`; build and publish
 the updated source before workers pull it. No registry publication was performed
 as part of implementing this runner.
@@ -204,9 +207,10 @@ python scripts/assemble_mt5_checkpoint.py \
 
 Despite its historical filename, the assembler recognizes QA checkpoints and
 exports `BertForQuestionAnswering` weights. The QA runner does not implement
-checkpoint resume, periodic saves, automatic failure recovery, dynamic rank
-membership or gradient compression. Repeating a launch in the same output
-directory overwrites that directory's rank artifacts; use a new directory per
+checkpoint resume, periodic saves, automatic failure recovery or dynamic rank
+membership. Optional Top-K data-gradient compression retains AdamW and saves
+CPU error-feedback buffers; see the larger-model guide. Repeating a launch in
+the same output directory overwrites that directory's rank artifacts; use a new directory per
 repetition/topology.
 
 ## Verification
