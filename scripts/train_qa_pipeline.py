@@ -29,6 +29,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", default="prajjwal1/bert-mini")
     parser.add_argument("--dataset", default="rajpurkar/squad")
+    parser.add_argument("--model-revision", default="main")
+    parser.add_argument("--dataset-revision", default="main")
     parser.add_argument("--rank", type=int, default=0)
     parser.add_argument("--world-size", type=int, default=1)
     parser.add_argument("--pipeline-size", type=int, default=1)
@@ -112,15 +114,15 @@ def load_model(args):
         config._attn_implementation = "eager"
         return BertForQuestionAnswering(config)
     return BertForQuestionAnswering.from_pretrained(
-        args.model, attn_implementation="eager", torch_dtype=torch.float32,
+        args.model, revision=getattr(args, "model_revision", "main"), attn_implementation="eager", torch_dtype=torch.float32,
     )
 
 
 def load_data(args):
-    tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=True)
+    tokenizer = AutoTokenizer.from_pretrained(args.model, revision=getattr(args, "model_revision", "main"), use_fast=True)
     if not tokenizer.is_fast:
         raise ValueError("QA requires a fast tokenizer with offset mappings")
-    dataset = load_dataset(args.dataset)
+    dataset = load_dataset(args.dataset, revision=getattr(args, "dataset_revision", "main"))
     examples, features = {}, {}
     for split, limit in (("train", args.train_examples), ("validation", args.validation_examples)):
         raw = dataset[split].shuffle(seed=args.seed).select(range(min(limit, len(dataset[split]))))
@@ -372,6 +374,11 @@ def run(args, progress=None):
         identity = {key: value for key, value in signature.items() if key not in
                     ("resume", "epochs", "max_steps", "checkpoint_every", "warmup_steps",
                      "dist_url", "timeout_seconds", "log_interval", "prepare_only")}
+        # Default revisions retain compatibility with checkpoints from the older CLI.
+        # Explicit pins still participate in identity validation on resume.
+        for revision in ("model_revision", "dataset_revision"):
+            if identity.get(revision) == "main":
+                identity.pop(revision)
         identity["training_batches"], identity["training_features"] = counts.tolist()
         data_hash = [hashlib.sha256(json.dumps(examples["train"].to_dict(), sort_keys=True).encode()).hexdigest()
                      if examples is not None else None]

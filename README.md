@@ -9,6 +9,13 @@ This is a research project developed by [DS3Lab@ETH Zurich](https://ds3lab.inf.e
 
 - The other modules are self-document to support the distributed training within the scope of pipeline parallelism and data parallelism.
 
+## Cluster console
+
+For an authenticated browser console with cluster membership approval, device
+pairing, owner-configured jobs, and a Python worker agent, see the
+[cluster console](./CLUSTER_CONSOLE.md). Start locally with
+`python -m cluster_control.server`.
+
 ## Docker
 
 For BERT-Mini question answering on SQuAD with two three-stage pipeline
