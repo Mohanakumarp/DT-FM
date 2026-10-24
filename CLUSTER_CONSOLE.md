@@ -42,8 +42,9 @@ behind a reverse proxy, use both `--secure-cookie` and
 ## Prepare a contributing computer
 
 Every computer needs this checkout and its own compatible training Python
-environment. Python 3.12 with PyTorch 2.8.0 CPU was used for the real integration
-tests. The service was also tested with Python 3.14.
+environment. Linux integration tests use Python 3.12 with PyTorch 2.8.0 CPU.
+Windows integration tests use Python 3.12 with PyTorch 2.13.0 CPU. The service
+was also tested with Python 3.14.
 
 For a new CPU environment on Linux:
 
@@ -58,9 +59,15 @@ For Windows PowerShell:
 
 ```powershell
 py -3.12 -m venv .venv-cluster
-.\.venv-cluster\Scripts\python.exe -m pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+.\.venv-cluster\Scripts\python.exe -m pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
 .\.venv-cluster\Scripts\python.exe -m pip install -r requirements-mt5.txt
 ```
+
+The Windows PyTorch 2.8.0 CPU wheel can report Gloo as available while failing
+to create its transport with `unsupported gloo device`. Use the Windows version
+above; `is_gloo_available()` alone does not verify a working process group.
+The upstream transport build issue is tracked in
+[pytorch/pytorch#150381](https://github.com/pytorch/pytorch/issues/150381).
 
 Use that environment's Python executable for all worker commands. NVIDIA
 contributors should use an appropriate CUDA-enabled PyTorch environment instead
@@ -120,8 +127,9 @@ python -m cluster_control.worker run --interface tailscale0
 On native Windows, let Gloo choose the interface unless you have validated an
 explicit interface for your environment. The launch code uses Python argument
 lists, not Bash or shell execution. Windows process termination uses
-`taskkill /T`; POSIX uses process groups. Physical Windows/CUDA/multi-host runs
-still need separate validation; the completed verification was on Linux CPU.
+`taskkill /T`; POSIX uses process groups. Physical CUDA/multi-host runs still
+need separate validation. Real worker integration tests cover two local CPU
+ranks on Linux and Windows.
 
 ## Configure and run
 
