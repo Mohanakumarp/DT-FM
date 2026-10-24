@@ -9,7 +9,25 @@ This is a research project developed by [DS3Lab@ETH Zurich](https://ds3lab.inf.e
 
 - The other modules are self-document to support the distributed training within the scope of pipeline parallelism and data parallelism.
 
+## Cluster console
+
+For an authenticated browser console with cluster membership approval, device
+pairing, owner-configured jobs, and a Python worker agent, see the
+[cluster console](./CLUSTER_CONSOLE.md). Start locally with
+`python -m cluster_control.server`.
+
 ## Docker
+
+For BERT-Mini question answering on SQuAD with two three-stage pipeline
+replicas and progress heartbeats, see [QA over Tailscale](./QA_TAILSCALE.md).
+
+For configurable laptop counts, runtime-selected encoder–decoder or causal models,
+and Hugging Face/local summarisation datasets, see
+[distributed summarisation](./DISTRIBUTED_SUMMARIZATION.md).
+The [Tamil mT5 example](./MT5_TAMIL.md) and
+[Linux/Windows Tailscale commands](./MT5_TAILSCALE.md) use the same published image.
+For sparse data-replica gradient exchange with Top-K or DGC, see
+[gradient compression](./GRADIENT_COMPRESSION.md).
 
 Run a CPU training smoke test from a clone on Linux, Windows, or macOS:
 

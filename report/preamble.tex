@@ -1,0 +1,90 @@
+\documentclass[12pt, a4paper]{article}
+
+% --- Language & Encoding ------------------------------------------------------
+\usepackage[english]{babel}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+
+% --- Page Layout --------------------------------------------------------------
+\usepackage[
+  a4paper,
+  top=2.5cm,
+  bottom=2.5cm,
+  left=3cm,
+  right=3cm,
+  marginparwidth=1.75cm
+]{geometry}
+
+% --- Typography ---------------------------------------------------------------
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{setspace}
+\onehalfspacing
+
+% --- Mathematics --------------------------------------------------------------
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+% --- Graphics & Figures -------------------------------------------------------
+\usepackage{graphicx}
+\usepackage[labelfont=bf, font=small, skip=6pt]{caption}
+\usepackage{float}
+\usepackage{subcaption}
+
+% --- Tables -------------------------------------------------------------------
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
+\usepackage{xcolor}
+\usepackage{colortbl}
+\usepackage{multirow}
+
+% --- Headers & Footers --------------------------------------------------------
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\setlength{\headheight}{14pt}
+\renewcommand{\headrulewidth}{0.4pt}
+\fancyhead[L]{\small\textit{PSG College of Technology}}
+\fancyhead[R]{\small\textit{Tasklet Scheduling Project}}
+\fancyfoot[C]{\thepage}
+
+% --- Section Formatting -------------------------------------------------------
+\usepackage{titlesec}
+\titleformat{\section}{\large\bfseries}{{\thesection}}{1em}{}[\titlerule]
+\titleformat{\subsection}{\normalsize\bfseries}{{\thesubsection}}{1em}{}
+\titlespacing*{\section}{0pt}{16pt}{8pt}
+\titlespacing*{\subsection}{0pt}{10pt}{4pt}
+
+% --- Hyperlinks ---------------------------------------------------------------
+\usepackage[
+  colorlinks=true,
+  linkcolor=blue!70!black,
+  citecolor=blue!70!black,
+  urlcolor=blue!70!black
+]{hyperref}
+
+% --- Miscellaneous ------------------------------------------------------------
+\usepackage{parskip}
+\usepackage{listings}
+\usepackage{placeins}
+\setlength{\parskip}{6pt}
+\setlength{\emergencystretch}{2em}
+\usepackage{enumitem}
+
+% --- Color Definitions --------------------------------------------------------
+\definecolor{headerblue}{RGB}{36, 74, 116}
+\definecolor{rowgray}{RGB}{240, 240, 240}
+\definecolor{tpgreen}{RGB}{198, 239, 206}
+\definecolor{tnblue}{RGB}{197, 217, 241}
+\definecolor{fpred}{RGB}{255, 199, 206}
+\definecolor{fnyellow}{RGB}{255, 235, 156}
+\graphicspath{{figures/}}
+
+\newcommand{\maybeincludegraphics}[2][]{%
+  \IfFileExists{#2}{\includegraphics[#1]{#2}}{\fbox{\parbox[c][2.8cm][c]{4.5cm}{\centering Logo}}}%
+}
+
+\lstset{basicstyle=\ttfamily\footnotesize,breaklines=true,columns=fullflexible,keepspaces=true,frame=single,backgroundcolor=\color{rowgray},aboveskip=10pt,belowskip=10pt}
