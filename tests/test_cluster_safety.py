@@ -66,6 +66,11 @@ class SafetyTests(unittest.TestCase):
                     thread.start()
                     process.wait(timeout=3)
                     self.assertNotEqual(process.returncode, 0)
+                    # Windows can observe child exit before taskkill returns and
+                    # the worker records the expired lease. Wait for that state.
+                    deadline = actual() + 3
+                    while ("test-job", 0) not in worker.lost and actual() < deadline:
+                        time.sleep(0.01)
                     self.assertIn(("test-job", 0), worker.lost)
                 finally:
                     worker.stopped.set()

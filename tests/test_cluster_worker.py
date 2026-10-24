@@ -16,6 +16,7 @@ from urllib.request import build_opener, HTTPCookieProcessor, Request
 from cluster_control.server import ControlServer
 from cluster_control.service import Service
 from cluster_control.store import Store
+from cluster_control.worker import stop_process
 
 
 @unittest.skipUnless(importlib.util.find_spec("torch") and importlib.util.find_spec("transformers") and
@@ -29,19 +30,21 @@ class WorkerIntegrationTests(unittest.TestCase):
         self.server = ControlServer(("127.0.0.1", 0), self.service)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
+        self.processes, self.handles = [], []
+        # unittest does not call tearDown when pairing fails during setUp.
+        self.addCleanup(self.cleanup_workers)
         self.origin = "http://127.0.0.1:%d" % self.server.server_port
         self.client = build_opener(HTTPCookieProcessor(CookieJar()))
         auth = self.call("/api/auth/register", {"name": "Owner", "email": "owner@example.com", "password": "long test password"})
         self.csrf = auth["csrf"]
         self.cluster = self.call("/api/clusters", {"name": "Integration lab"})["id"]
-        self.processes, self.handles = [], []
         self.selections = []
         for index in range(2):
             state = self.directory / ("worker-%d.json" % index)
             code = self.call("/api/clusters/%s/pairing" % self.cluster, {})["code"]
             paired = subprocess.run([sys.executable, "-m", "cluster_control.worker", "pair", "--server", self.origin,
                 "--code", code, "--name", "CPU worker %d" % index, "--address", "127.0.0.1", "--devices", "cpu", "--state", str(state)],
-                capture_output=True, text=True, timeout=30)
+                capture_output=True, text=True, timeout=120)
             self.assertEqual(paired.returncode, 0, paired.stderr)
             identity = json.loads(state.read_text())
             self.selections.append(identity["agent_id"] + ":cpu")
@@ -53,15 +56,9 @@ class WorkerIntegrationTests(unittest.TestCase):
                 "--output", str(self.directory / ("artifacts-%d" % index))], stdout=handle, stderr=subprocess.STDOUT)
             self.processes.append(process)
 
-    def tearDown(self):
+    def cleanup_workers(self):
         for process in self.processes:
-            if process.poll() is None:
-                process.terminate()
-                try:
-                    process.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=5)
+            stop_process(process)
         for handle in self.handles:
             handle.close()
         self.server.shutdown()

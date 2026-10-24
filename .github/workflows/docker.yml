@@ -6,6 +6,25 @@ on:
   workflow_dispatch:
 
 jobs:
+  cluster-windows:
+    name: Cluster console (Windows CPU)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install CPU training dependencies
+        run: |
+          python -m pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -r requirements-mt5.txt
+      - name: Cluster service and real worker training tests
+        run: python -m unittest discover -s tests -p 'test_cluster_*.py' -v
+      - name: Dashboard JavaScript syntax
+        run: node --check cluster_control/web/app.js
+
   cpu:
     runs-on: ubuntu-latest
     timeout-minutes: 30
