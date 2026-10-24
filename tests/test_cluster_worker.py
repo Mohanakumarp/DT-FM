@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import secrets
 import socket
 import subprocess
 import sys
@@ -11,6 +12,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 from urllib.request import build_opener, HTTPCookieProcessor, Request
 
 from cluster_control.server import ControlServer
@@ -41,9 +43,12 @@ class WorkerIntegrationTests(unittest.TestCase):
         self.selections = []
         for index in range(2):
             state = self.directory / ("worker-%d.json" % index)
-            code = self.call("/api/clusters/%s/pairing" % self.cluster, {})["code"]
+            # URL-safe codes may start with a dash. Exercise that CLI boundary
+            # every time rather than depending on a randomly generated prefix.
+            with patch("cluster_control.service.secrets.token_urlsafe", return_value="-" + secrets.token_urlsafe(18)):
+                code = self.call("/api/clusters/%s/pairing" % self.cluster, {})["code"]
             paired = subprocess.run([sys.executable, "-m", "cluster_control.worker", "pair", "--server", self.origin,
-                "--code", code, "--name", "CPU worker %d" % index, "--address", "127.0.0.1", "--devices", "cpu", "--state", str(state)],
+                "--code=" + code, "--name", "CPU worker %d" % index, "--address", "127.0.0.1", "--devices", "cpu", "--state", str(state)],
                 capture_output=True, text=True, timeout=120)
             self.assertEqual(paired.returncode, 0, paired.stderr)
             identity = json.loads(state.read_text())
@@ -53,7 +58,8 @@ class WorkerIntegrationTests(unittest.TestCase):
             handle = (self.directory / ("worker-%d.log" % index)).open("w")
             self.handles.append(handle)
             process = subprocess.Popen([sys.executable, "-m", "cluster_control.worker", "run", "--state", str(state),
-                "--output", str(self.directory / ("artifacts-%d" % index))], stdout=handle, stderr=subprocess.STDOUT)
+                "--output", str(self.directory / ("artifacts-%d" % index))], stdout=handle, stderr=subprocess.STDOUT,
+                start_new_session=os.name != "nt")
             self.processes.append(process)
 
     def cleanup_workers(self):
