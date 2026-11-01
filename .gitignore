@@ -56,3 +56,30 @@ task_datasets/data/
 .lab-tools/
 task_datasets/data/wikitext-103/
 task_datasets/data/wikitext-103.tgz
+
+# Evaluation results and JSON metrics
+*evaluation_results*.json
+true_tamil_summarization_results.json
+
+# Model weights, checkpoint directories, and exports
+300m model/
+mt5_small_dtfm/
+unified_mt5_small_tamil/
+qa-bert-large-*/
+qa-squad-*/
+
+# Logs and simulation outputs
+logs/mt5-tamil/
+logs/simulated_run/
+
+# Presentation figures, images, and reference guides
+images/
+*.pdf
+
+# One-off benchmark, evaluation, and chart generation scripts
+scripts/compute_evaluation_metrics.py
+scripts/emulate_wan.sh
+scripts/evaluate_full_dataset.py
+scripts/generate_*.py
+scripts/run_local_simulation.py
+scripts/stitch_and_evaluate_mt5.py

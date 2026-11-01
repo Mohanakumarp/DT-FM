@@ -260,6 +260,20 @@ class Service:
                 self._withdraw(db, agent_id, "Contributor paused or withdrew device sharing", removed if body["enabled"] else None)
         return {"ok": True}
 
+    def delete_agent(self, user_id, cluster_id, agent_id):
+        with self.store.transaction() as db:
+            cluster = self._member(db, cluster_id, user_id)
+            agent = db.execute("SELECT * FROM agents WHERE id=? AND cluster_id=?", (agent_id, cluster_id)).fetchone()
+            if not agent:
+                raise APIError(404, "Computer not found")
+            if agent["user_id"] != user_id and cluster["owner_id"] != user_id:
+                raise APIError(403, "Only the contributor or cluster owner can remove this computer")
+            # Withdraw from any active jobs
+            self._withdraw(db, agent_id, "Computer was removed from cluster")
+            db.execute("DELETE FROM assignments WHERE agent_id=?", (agent_id,))
+            db.execute("DELETE FROM agents WHERE id=?", (agent_id,))
+        return {"ok": True}
+
     def heartbeat(self, token, capabilities=None):
         with self.store.transaction() as db:
             agent = self._agent(db, token)

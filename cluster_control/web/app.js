@@ -63,9 +63,10 @@ const empty = (title, copy, action = "") =>
 const field = (name, label, value, options = {}) =>
   `<label class="field ${options.full ? "full" : ""}"><span>${esc(label)}</span>${options.select ? `<select name="${esc(name)}">${options.select.map(([key, text]) => `<option value="${esc(key)}" ${String(value) === String(key) ? "selected" : ""}>${esc(text)}</option>`).join("")}</select>` : `<input name="${esc(name)}" type="${options.type || "text"}" value="${esc(value)}" ${options.min != null ? `min="${options.min}"` : ""} ${options.max != null ? `max="${options.max}"` : ""} ${options.step ? `step="${options.step}"` : ""} ${options.required === false ? "" : "required"} ${options.autocomplete ? `autocomplete="${options.autocomplete}"` : ""}>`}${options.help ? `<small>${esc(options.help)}</small>` : ""}</label>`;
 
-async function api(path, body) {
+async function api(path, body, method) {
+  const httpMethod = method || (body === undefined ? "GET" : "POST");
   const response = await fetch(path, {
-    method: body === undefined ? "GET" : "POST",
+    method: httpMethod,
     credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
@@ -121,8 +122,12 @@ async function refreshCluster() {
   state.jobs = jobs.jobs;
   if (!state.draft) {
     const available = eligibleDevices();
+    let savedConfig = {};
+    try {
+      savedConfig = JSON.parse(localStorage.getItem(`dtfm_config_${id}`) || "{}");
+    } catch {}
     state.draft = {
-      config: { ...state.catalog.defaults },
+      config: { ...state.catalog.defaults, ...savedConfig },
       devices: available.length ? [available[0].key] : [],
     };
   }
@@ -266,7 +271,7 @@ function overviewPage() {
 
 function devicesPage() {
   const devices = allDevices();
-  return `<div class="section-head"><div><h2>Contributed devices</h2><small>Each contributor controls the devices their worker is allowed to use.</small></div><button class="primary" data-action="pair">${icon("plus")} Connect computer</button></div><section class="panel">${devices.length ? `<div class="table-wrap"><table><thead><tr><th>Device</th><th>Computer / contributor</th><th>Memory</th><th>Runtime</th><th>Contribution</th></tr></thead><tbody>${devices.map(({ agent, device, supported, available, reservation }) => `<tr><td class="device-cell"><div class="device-name">${icon("chip")}<div><div class="row-title">${esc(device.name)}</div><div class="row-sub">${esc(device.backend.toUpperCase())} · ${esc(device.id)}</div></div></div></td><td><div>${esc(agent.name)}</div><div class="row-sub">${esc(agent.contributor)} · ${esc(agent.address)}</div></td><td class="mono">${memory(device.memory_bytes)}</td><td>${badge(agent.online ? "online" : "offline")}${!agent.capabilities.runtime_ready ? `<div class="row-sub">${esc(agent.capabilities.runtime_error)}</div>` : !supported ? '<div class="row-sub">Training adapter not available</div>' : ""}</td><td>${badge(reservation ? reservation.state : available && supported ? "available" : "paused", reservation ? (reservation.state === "running" ? "Training" : "Reserved") : available && supported ? "Shared" : !agent.enabled ? "Paused" : !agent.shared_devices.includes(device.id) ? "Not shared" : "Unavailable")}${agent.user_id === state.auth.user.id ? `<button class="quiet small" data-action="sharing" data-id="${agent.id}">${agent.enabled ? "Pause computer" : "Resume computer"}</button>` : ""}</td></tr>`).join("")}</tbody></table></div>` : empty("No computers connected yet", "Pair a worker on your computer to discover and contribute its devices.")}</section><br><div class="note">This first version runs QA and smoke jobs on CPU and NVIDIA CUDA, using Gloo and FP32. Other detected accelerators remain visible so their support status is clear.</div>`;
+  return `<div class="section-head"><div><h2>Contributed devices</h2><small>Each contributor controls the devices their worker is allowed to use.</small></div><button class="primary" data-action="pair">${icon("plus")} Connect computer</button></div><section class="panel">${devices.length ? `<div class="table-wrap"><table><thead><tr><th>Device</th><th>Computer / contributor</th><th>Memory</th><th>Runtime</th><th>Contribution</th><th>Actions</th></tr></thead><tbody>${devices.map(({ agent, device, supported, available, reservation }) => `<tr><td class="device-cell"><div class="device-name">${icon("chip")}<div><div class="row-title">${esc(device.name)}</div><div class="row-sub">${esc(device.backend.toUpperCase())} · ${esc(device.id)}</div></div></div></td><td><div>${esc(agent.name)}</div><div class="row-sub">${esc(agent.contributor)} · ${esc(agent.address)}</div></td><td class="mono">${memory(device.memory_bytes)}</td><td>${badge(agent.online ? "online" : "offline")}${!agent.capabilities.runtime_ready ? `<div class="row-sub">${esc(agent.capabilities.runtime_error)}</div>` : !supported ? '<div class="row-sub">Training adapter not available</div>' : ""}</td><td>${badge(reservation ? reservation.state : available && supported ? "available" : "paused", reservation ? (reservation.state === "running" ? "Training" : "Reserved") : available && supported ? "Shared" : !agent.enabled ? "Paused" : !agent.shared_devices.includes(device.id) ? "Not shared" : "Unavailable")}${agent.user_id === state.auth.user.id ? `<button class="quiet small" data-action="sharing" data-id="${agent.id}">${agent.enabled ? "Pause computer" : "Resume computer"}</button>` : ""}</td><td>${!agent.online || isOwner() || agent.user_id === state.auth.user.id ? `<button class="quiet small danger" data-action="delete-agent" data-id="${agent.id}">Remove</button>` : '<span class="muted">—</span>'}</td></tr>`).join("")}</tbody></table></div>` : empty("No computers connected yet", "Pair a worker on your computer to discover and contribute its devices.")}</section><br><div class="note">This first version runs QA and smoke jobs on CPU and NVIDIA CUDA, using Gloo and FP32. Other detected accelerators remain visible so their support status is clear.</div>`;
 }
 
 function trainingForm() {
@@ -280,7 +285,7 @@ function trainingForm() {
     .filter(([key]) => smoke === (key === "tiny-random-bert"))
     .map(([key, value]) => [key, value.label]);
   const available = eligibleDevices();
-  return `<form data-form="training"><div class="two-column"><section class="panel"><div class="panel-head"><h2>Training configuration</h2><span class="badge">FP32 · Gloo</span></div><div class="panel-body"><div class="form-grid">${field(
+  return `<form data-form="training"><div class="two-column"><section class="panel"><div class="panel-head"><h2>Training configuration</h2><div style="display:flex;gap:0.5rem;align-items:center;"><button type="button" class="small quiet" data-action="save-config">${icon("check")} Save config</button><span class="badge">FP32 · Gloo</span></div></div><div class="panel-body"><div class="form-grid">${field(
     "workflow",
     "Training workflow",
     c.workflow,
@@ -365,9 +370,9 @@ function jobPage() {
     })
     .join(
       "",
-    )}</tbody></table></div></section><div class="section-head"><h2>Worker logs</h2><small>Last ${Math.min(160, state.events.length)} events · full logs remain on workers</small></div><section class="panel"><pre class="log" id="run-log">${esc(
+    )}</tbody></table></div></section><div class="section-head"><div><h2>Worker logs</h2><small>All ranks · last ${Math.min(300, state.events.length)} events</small></div><button class="small quiet" data-action="copy-logs">Copy logs</button></div><section class="panel"><pre class="log" id="run-log">${esc(
     state.events
-      .slice(-160)
+      .slice(-300)
       .map(
         (event) =>
           `[${new Date(event.timestamp * 1000).toLocaleTimeString()}${event.rank == null ? " · coordinator" : ` · rank ${event.rank}`}] ${event.message}`,
@@ -483,6 +488,33 @@ async function handleAction(target) {
         ? "Sharing paused. Active jobs using this computer will stop."
         : "Computer sharing resumed.",
     );
+  }
+  if (action === "delete-agent") {
+    if (!confirm("Are you sure you want to remove this computer from the cluster?")) return;
+    await api(`/api/clusters/${state.cluster.id}/agents/${id}`, {});
+    await refreshCluster();
+    render();
+    toast("Computer removed from cluster.");
+  }
+  if (action === "save-config") {
+    const form = document.querySelector('[data-form="training"]');
+    if (form) updateDraft(form);
+    try {
+      localStorage.setItem(`dtfm_config_${state.cluster.id}`, JSON.stringify(state.draft.config));
+      toast("Training configuration saved locally.");
+    } catch (e) {
+      toast("Could not save config: " + e.message, true);
+    }
+  }
+  if (action === "copy-logs") {
+    const log = document.querySelector("#run-log");
+    if (log) {
+      navigator.clipboard.writeText(log.textContent).then(() => {
+        toast("Logs copied to clipboard.");
+      }).catch(() => {
+        toast("Failed to copy logs.", true);
+      });
+    }
   }
   if (action === "pair") {
     const pair = await api(`/api/clusters/${state.cluster.id}/pairing`, {});

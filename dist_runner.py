@@ -245,5 +245,22 @@ def _run_training(args, tracker):
         metrics.dump('%s/metrics_rank%d.json' % (args.metrics_dir, args.rank))
 
 
+    checkpoint_dir = getattr(args, 'metrics_dir', './logs')
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    checkpoint_path = os.path.join(checkpoint_dir, f'model_stage_rank{args.rank}.pt')
+    try:
+        torch.save({
+            'rank': args.rank,
+            'world_size': args.world_size,
+            'pipeline_group_size': args.pipeline_group_size,
+            'stage_layers': getattr(args, 'stage_layers', None),
+            'stage_parameters': getattr(args, 'stage_parameters', None),
+            'model_state_dict': pipe.model.state_dict(),
+        }, checkpoint_path)
+        print(f"==== Rank {args.rank} checkpoint successfully saved to {checkpoint_path}")
+    except Exception as exc:
+        print(f"==== Rank {args.rank} failed to save checkpoint: {exc}")
+
+
 if __name__ == '__main__':
     main()

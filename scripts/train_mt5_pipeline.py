@@ -270,6 +270,11 @@ def run(args):
     device = torch.device(args.device)
     if args.device == "cuda" and not torch.cuda.is_available():
         raise ValueError("CUDA requested but unavailable")
+    if args.device == "cuda" and args.world_size > 1 and "127.0.0.1" in args.dist_url:
+        try:
+            torch.cuda.set_per_process_memory_fraction(min(0.9 / args.world_size, 0.4), 0)
+        except Exception:
+            pass
     if args.smoke:
         model = MT5ForConditionalGeneration(MT5Config(
             vocab_size=64, d_model=16, d_ff=32, d_kv=8,

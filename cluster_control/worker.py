@@ -183,6 +183,7 @@ class Execution:
         output = self.output / "preflight" if prepare else self.output
         output.mkdir(parents=True, exist_ok=True)
         environment = dict(os.environ, PYTHONUNBUFFERED="1", TOKENIZERS_PARALLELISM="false",
+                           USE_LIBUV="0",
                            OMP_NUM_THREADS=str(self.assignment["cpu_threads"]),
                            MKL_NUM_THREADS=str(self.assignment["cpu_threads"]))
         if self.assignment["device"]["backend"] == "cuda":
