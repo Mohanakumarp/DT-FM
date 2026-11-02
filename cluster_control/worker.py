@@ -186,6 +186,9 @@ class Execution:
                            USE_LIBUV="0",
                            OMP_NUM_THREADS=str(self.assignment["cpu_threads"]),
                            MKL_NUM_THREADS=str(self.assignment["cpu_threads"]))
+        if os.name == "nt":
+            environment["GLOO_SOCKET_IFNAME"] = os.environ.get("GLOO_SOCKET_IFNAME", "Tailscale")
+            environment["TP_SOCKET_IFNAME"] = os.environ.get("TP_SOCKET_IFNAME", "Tailscale")
         if self.assignment["device"]["backend"] == "cuda":
             # The runner uses device 0; narrow visibility to the contributor-selected adapter.
             inherited = os.environ.get("CUDA_VISIBLE_DEVICES")
