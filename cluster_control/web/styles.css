@@ -954,6 +954,27 @@ dialog::backdrop {
   font-size: 18px !important;
   letter-spacing: 1px;
 }
+.docker-command {
+  margin-top: 26px;
+}
+.docker-command-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.docker-command-head h3 {
+  font-size: 14px;
+  margin: 0;
+}
+#docker-setup {
+  margin: 22px 0 12px;
+}
+@media (max-width: 480px) {
+  #docker-setup {
+    grid-template-columns: 1fr;
+  }
+}
 .dialog-error {
   color: var(--danger);
   font-size: 12px;

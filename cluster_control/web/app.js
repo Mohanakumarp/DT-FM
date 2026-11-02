@@ -105,6 +105,67 @@ function modal(title, content) {
   if (!dialog.open) dialog.showModal();
 }
 
+// Commands run inside the published image; contributors need no checkout.
+let dockerPairing = null;
+function dockerCommands(platform, device, address, name, server) {
+  const desktop = platform === "desktop";
+  const quote = (value) => "'" + String(value).replace(/'/g, desktop ? "''" : "'\"'\"'") + "'";
+  const image = `suryanarayanaant/dtfm:${device === "cuda" ? "cuda" : "latest"}`;
+  const network = desktop ? "container:dtfm-tailnet" : "host";
+  const runtime = `docker run --rm --init --network ${network}${device === "cuda" ? " --gpus all" : ""} --shm-size 1g -e HF_HOME=/cache/huggingface -e USE_LIBUV=0 -v dtfm-worker-state:/state -v dtfm-model-cache:/cache ${image}`;
+  const base = `${runtime} python -m cluster_control.worker`;
+  const setup = [`docker pull ${image}`];
+  if (desktop) setup.push(
+    "docker run -d --name dtfm-tailnet --restart unless-stopped --cap-add NET_ADMIN --cap-add NET_RAW --device /dev/net/tun -v dtfm-tailscale-state:/var/lib/tailscale --entrypoint tailscaled tailscale/tailscale:stable --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock",
+    "docker exec dtfm-tailnet tailscale up --accept-dns=false",
+    "docker exec dtfm-tailnet tailscale ip -4",
+  );
+  setup.push(`${runtime} python -c "import sys, torch; print(sys.version); print(torch.__version__)"`, `${base} inspect`);
+  return {
+    image,
+    setup: setup.join("\n\n"),
+    pair: `${base} pair --server ${quote(server)} --address ${quote(address || "<worker-Tailscale-IP>")} --name ${quote(name || "My computer")} --devices ${device === "cuda" ? "all" : "cpu"} --state /state/worker.json`,
+    run: `${base} run --state /state/worker.json --output /state/artifacts --interface tailscale0`,
+  };
+}
+
+function commandBlock(id, title, command) {
+  return `<section class="docker-command"><div class="docker-command-head"><h3>${esc(title)}</h3><button class="small" data-action="copy-command" data-command="${id}" aria-label="Copy ${esc(title)} commands">Copy</button></div><pre id="${id}">${esc(command)}</pre></section>`;
+}
+
+function updateDockerCommands() {
+  const setup = dialog.querySelector("#docker-setup");
+  if (!setup || !dockerPairing) return;
+  const value = (name) => setup.querySelector(`[name="${name}"]`).value.trim();
+  const platform = value("worker_platform");
+  const desktop = platform === "desktop";
+  const commands = dockerCommands(platform, value("worker_device"), value("worker_address"), value("worker_name"), location.origin);
+  for (const key of ["setup", "pair", "run"]) dialog.querySelector(`#docker-${key}-command`).textContent = commands[key];
+  dialog.querySelector("#docker-network-help").textContent = desktop
+    ? "Use Docker Desktop with Linux containers and WSL 2 on Windows. Sign in using the Tailscale login URL above, then enter the sidecar IP printed by tailscale ip -4. If dtfm-tailnet already exists, replace its creation command with docker start dtfm-tailnet."
+    : "Docker Engine shares this Linux host's network. Tailscale must be connected on tailscale0. Enter this computer's Tailscale IPv4, which can also be the dashboard IP when both run on this host.";
+  const valid = /^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/.test(value("worker_address")) && !!value("worker_name");
+  dialog.querySelector('[data-command="docker-pair-command"]').disabled = !valid;
+  dialog.querySelector("#docker-address-help").textContent = valid ? "This address is included in the pairing command." : "Enter this worker's Tailscale IPv4 or reachable hostname to enable copying.";
+}
+
+function dockerPairingDialog() {
+  dockerPairing = {};
+  modal("Connect computer with Docker", `<p>Install Docker and run these commands in order. No Python setup or source checkout is needed. Use Docker images from the same release on every training computer.</p>
+    <div id="docker-setup" class="form-grid">${field("worker_platform", "Operating system", "linux", { select: [["linux", "Linux"], ["desktop", "Windows / macOS Docker Desktop"]] })}${field("worker_device", "Compute", "cpu", { select: [["cpu", "CPU · latest image"], ["cuda", "NVIDIA GPU · cuda image"]] })}${field("worker_name", "Computer name", state.auth.user.name + " worker")}${field("worker_address", "Worker Tailscale IP", "", { required: false })}</div>
+    <p id="docker-address-help" aria-live="polite"></p>
+    ${commandBlock("docker-setup-command", "1. Prepare Docker", "")}
+    <p id="docker-network-help"></p><p>Compare the printed Python and PyTorch versions on every computer before training. NVIDIA compute requires GPU access in Docker. Apple GPU compute requires native macOS; Docker uses CPU.</p>
+    <h3>2. Pair your computer</h3><p>Finish downloading the image and connecting Tailscale first. Then generate a code and paste it when the pairing command prompts you.</p>
+    <button data-action="generate-pair-code">Generate pairing code</button><div id="docker-pair-code" aria-live="polite"></div>
+    ${commandBlock("docker-pair-command", "Register worker", "")}
+    ${commandBlock("docker-run-command", "3. Start contributing", "")}
+    <p>Keep this command running. Ctrl+C stops the worker. Pair once; future sessions only need the start command. Your identity, logs, and model cache stay in Docker volumes.</p>
+    <p>Allow traffic between all worker Tailscale IPs, including TCP 29500 and Gloo's dynamic ports. Stop the old native worker before switching to Docker.</p>
+    <button class="primary" data-action="close-dialog">Done</button>`);
+  updateDockerCommands();
+}
+
 async function refreshClusters() {
   state.clusters = (await api("/api/clusters")).clusters;
 }
@@ -266,7 +327,7 @@ function overviewPage() {
       icon: "activity",
       foot: `${state.jobs.filter((j) => ["preparing", "running"].includes(j.status)).length} active · ${state.jobs.filter((j) => j.status === "completed").length} completed`,
     },
-  ])}<div class="section-head"><h2>Cluster activity</h2>${isOwner() ? '<button class="small" data-action="tab" data-tab="training">Configure a run</button>' : ""}</div><div class="two-column"><section class="panel"><div class="panel-head"><h2>Recent training</h2><span class="muted">${state.jobs.length} runs</span></div>${state.jobs.length ? runRows(5) : empty("Ready when your devices are", "Connect at least one supported device to start your first training run.")}</section><section class="panel"><div class="panel-head"><h2>Getting connected</h2></div><div class="panel-body"><ol class="help-list"><li><span class="step">1</span><div><strong>Pair your computer</strong><br>Install the training dependencies, then pair your local worker.</div></li><li><span class="step">2</span><div><strong>Choose your contribution</strong><br>Share a CPU, NVIDIA GPU, or Apple GPU. You can pause sharing at any time.</div></li><li><span class="step">3</span><div><strong>Check connectivity</strong><br>Across computers, use reachable private addresses and a working Gloo network.</div></li></ol><br><button data-action="pair">${icon("plus")} Connect computer</button></div></section></div>`;
+  ])}<div class="section-head"><h2>Cluster activity</h2>${isOwner() ? '<button class="small" data-action="tab" data-tab="training">Configure a run</button>' : ""}</div><div class="two-column"><section class="panel"><div class="panel-head"><h2>Recent training</h2><span class="muted">${state.jobs.length} runs</span></div>${state.jobs.length ? runRows(5) : empty("Ready when your devices are", "Connect at least one supported device to start your first training run.")}</section><section class="panel"><div class="panel-head"><h2>Getting connected</h2></div><div class="panel-body"><ol class="help-list"><li><span class="step">1</span><div><strong>Pair your computer</strong><br>Pull the Docker image, then pair your worker.</div></li><li><span class="step">2</span><div><strong>Choose your contribution</strong><br>Choose CPU or NVIDIA GPU compute in Docker. You can pause sharing at any time.</div></li><li><span class="step">3</span><div><strong>Check connectivity</strong><br>Across computers, use reachable private addresses and a working Gloo network.</div></li></ol><br><button data-action="pair">${icon("plus")} Connect computer</button></div></section></div>`;
 }
 
 function devicesPage() {
@@ -516,12 +577,30 @@ async function handleAction(target) {
       });
     }
   }
-  if (action === "pair") {
+  if (action === "pair") dockerPairingDialog();
+  if (action === "generate-pair-code") {
+    const pending = dockerPairing;
     const pair = await api(`/api/clusters/${state.cluster.id}/pairing`, {});
-    modal(
-      "Connect your computer",
-      `<p>Run these commands from your DT-FM checkout using the Python environment that has your training dependencies installed. These commands work in Bash and PowerShell.</p><div class="eyebrow">YOUR ONE-TIME PAIRING CODE · EXPIRES IN 10 MINUTES</div><pre class="pair-code">${esc(pair.code)}</pre><div class="eyebrow">1 · REGISTER YOUR COMPUTER</div><pre>python -m cluster_control.worker pair --server ${esc(location.origin)} --address &lt;private-IP&gt; --devices cpu</pre><p>Paste the code when prompted. For an NVIDIA GPU, replace <code>cpu</code> with <code>cuda:0</code>. For an Apple silicon GPU, use <code>mps:0</code> after native macOS setup. Use <code>python -m cluster_control.worker inspect</code> to see your devices. Across computers, use a reachable private address such as your Tailscale IPv4.</p><div class="eyebrow">2 · START CONTRIBUTING</div><pre>python -m cluster_control.worker run</pre><p>Keep the agent running. Ctrl+C stops its local training. You can also pause sharing from the Devices page.</p><button class="primary" data-action="close-dialog">Done</button>`,
-    );
+    if (pending !== dockerPairing || !dialog.open) return;
+    const code = dialog.querySelector("#docker-pair-code");
+    if (!code) return;
+    code.innerHTML = `<pre class="pair-code">${esc(pair.code)}</pre><p>Expires in 10 minutes. Paste this at the private pairing prompt.</p>`;
+    target.textContent = "Generate a new code";
+  }
+  if (action === "copy-command") {
+    const code = dialog.querySelector(`#${target.dataset.command}`);
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(code.textContent);
+      toast("Command copied");
+    } catch {
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(code);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      toast("Command selected. Press Ctrl+C or Command+C to copy.");
+    }
   }
   if (action === "open-job") {
     await fetchJob(id, true);
@@ -632,6 +711,7 @@ document.addEventListener("submit", async (event) => {
 });
 
 document.addEventListener("input", (event) => {
+  if (event.target.closest("#docker-setup")) { updateDockerCommands(); return; }
   const form = event.target.closest('[data-form="training"]');
   if (!form) return;
   updateDraft(form);
@@ -655,6 +735,7 @@ document.addEventListener("input", (event) => {
 });
 
 document.addEventListener("change", (event) => {
+  if (event.target.closest("#docker-setup")) { updateDockerCommands(); return; }
   if (
     event.target.name !== "workflow" ||
     !event.target.closest('[data-form="training"]')

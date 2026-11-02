@@ -1,5 +1,11 @@
 # Pair and run cluster workers in Docker
 
+The dashboard's **Connect computer** dialog generates standalone Docker commands
+for Linux or Docker Desktop and CPU or NVIDIA compute. Enter the worker's
+Tailscale address and computer name, complete Docker setup, then generate a
+pairing code. The dialog includes copy controls and persistent Docker volumes;
+contributors using it do not need the Compose files below.
+
 Use Docker for **every worker in the job**, including Linux rank 0. The dashboard
 can keep running as it is. Containers run the code included in the image and
 need no host Python environment or source mount. Pairing state, job logs, and
