@@ -42,6 +42,8 @@ def load_common_checkpoint(root, args, identity, stage, optimizer, compressor):
         torch.set_rng_state(state["rng_cpu"])
         if args.device == "cuda":
             torch.cuda.set_rng_state(state["rng_cuda"])
+        elif args.device == "mps":
+            torch.mps.set_rng_state(state["rng_mps"])
     except Exception as exception:
         error = str(exception)
     collect_errors(error)
@@ -68,7 +70,8 @@ def save_checkpoint(root, args, stage, optimizer, compressor, step, run_id, iden
                  "compressor": compressor.state_dict() if compressor else None,
                  "pretrained": stage.pretrained_state_dict(), "optimizer": optimizer.state_dict(),
                  "rng_cpu": torch.get_rng_state(),
-                 "rng_cuda": torch.cuda.get_rng_state() if args.device == "cuda" else None}
+                 "rng_cuda": torch.cuda.get_rng_state() if args.device == "cuda" else None,
+                 "rng_mps": torch.mps.get_rng_state() if args.device == "mps" else None}
         with temporary.open("wb") as handle:
             torch.save(state, handle)
             handle.flush()

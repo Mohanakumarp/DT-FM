@@ -81,7 +81,7 @@ def build_manifest(profile, hosts, devices=None, payload_bytes=1048576, port=900
         raise ValueError('provide one IPv4 address or DNS hostname per measured rank')
     devices = ['cpu'] * size if devices is None else devices
     if (not isinstance(devices, list) or len(devices) != size
-            or any(device not in ('cpu', 'cuda', 'rocm', 'xpu', 'directml') for device in devices)):
+            or any(device not in ('cpu', 'cuda', 'rocm', 'xpu', 'directml', 'mps') for device in devices)):
         raise ValueError('provide one explicit supported device per measured rank')
     if type(payload_bytes) is not int or not 1 <= payload_bytes <= 2**53:
         raise ValueError('payload_bytes must be an integer from 1 to 2^53')

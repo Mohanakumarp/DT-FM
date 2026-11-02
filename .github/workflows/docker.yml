@@ -26,27 +26,52 @@ jobs:
         run: node --check cluster_control/web/app.js
 
   cpu:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    name: CPU training (${{ matrix.target }}, ${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: cpu
+            platform: linux/amd64
+            machine: x86_64
+            runner: ubuntu-latest
+            compose-file: compose.yaml
+          - target: mac
+            platform: linux/arm64
+            machine: aarch64
+            runner: ubuntu-24.04-arm
+            compose-file: compose.yaml:compose.mac.yaml
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      COMPOSE_FILE: ${{ matrix.compose-file }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
-      - name: Build CPU image
+      - name: Build CPU image for ${{ matrix.platform }}
         uses: docker/build-push-action@v6
         with:
           context: .
-          target: cpu
+          target: ${{ matrix.target }}
+          platforms: ${{ matrix.platform }}
           load: true
-          tags: dtfm:cpu
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: dtfm:${{ matrix.target }}
+          cache-from: type=gha,scope=${{ matrix.target }}
+          cache-to: type=gha,scope=${{ matrix.target }},mode=max
       - name: Validate Compose
         run: docker compose --profile '*' config --quiet
+      - name: Check architecture and Gloo
+        run: |
+          docker compose run --rm --no-deps train python -c "import platform, torch; assert platform.machine() == '${{ matrix.machine }}'; assert torch.distributed.is_gloo_available(); print(platform.machine(), torch.__version__)"
       - name: Existing test suite and CPU smoke
         run: |
           docker compose run --rm --no-deps train test
           docker compose run --rm --no-deps train
           docker compose run --rm --no-deps -e DTFM_WORLD_SIZE=2 train
+      - name: QA and summarization smoke tests
+        run: |
+          docker compose run --rm --no-deps train python scripts/run_macos_smoke.py --device cpu --mixed-cpu --workflow qa
+          docker compose run --rm --no-deps train python scripts/run_macos_smoke.py --device cpu --mixed-cpu --workflow summarization
       - name: Train across two containers
         run: |
           docker compose up -d rank0 rank1
@@ -70,7 +95,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: docker-cpu-measurements
+          name: docker-${{ matrix.target }}-measurements
           path: logs/
       - name: Stop containers
         if: always()

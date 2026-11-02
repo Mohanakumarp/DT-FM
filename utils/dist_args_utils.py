@@ -1,5 +1,5 @@
 def add_device_arguments(parser):
-    parser.add_argument('--device', choices=['auto', 'cpu', 'cuda', 'rocm', 'xpu', 'directml'], default='auto',
+    parser.add_argument('--device', choices=['auto', 'cpu', 'cuda', 'rocm', 'xpu', 'directml', 'mps'], default='auto',
                         help='compute device (default: auto)')
     parser.add_argument('--use-cuda', default=None, type=lambda x: (str(x).lower() == 'true'),
                         help='deprecated compatibility flag; prefer --device')

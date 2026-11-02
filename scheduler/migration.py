@@ -16,12 +16,15 @@ from scheduler.resources import resource_snapshot
 def preserve_rng(device):
     cpu = torch.get_rng_state()
     api = torch.cuda if device.type == 'cuda' else torch.xpu if device.type == 'xpu' else None
-    accelerator = api.get_rng_state(device) if api is not None else None
+    accelerator = torch.mps.get_rng_state() if device.type == 'mps' else (
+        api.get_rng_state(device) if api is not None else None)
     try:
         yield
     finally:
         torch.set_rng_state(cpu)
-        if api is not None:
+        if device.type == 'mps':
+            torch.mps.set_rng_state(accelerator)
+        elif api is not None:
             api.set_rng_state(accelerator, device)
 
 

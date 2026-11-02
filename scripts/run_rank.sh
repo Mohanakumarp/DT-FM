@@ -15,14 +15,19 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 DEVICE="${DEVICE:-auto}"
+HOST_OS="$(uname -s)"
 
 if [[ -z "${PYTHON:-}" && -z "${CONDA_PREFIX:-}" ]]; then
-  # shellcheck disable=SC1091
-  source "$(conda info --base)/etc/profile.d/conda.sh"
-  conda activate "${DTFM_CONDA_ENV:-dtfm}"
+  if [[ "${HOST_OS}" == "Darwin" && -x "${ROOT}/.venv-mac/bin/python" ]]; then
+    PYTHON="${ROOT}/.venv-mac/bin/python"
+  else
+    # shellcheck disable=SC1091
+    source "$(conda info --base)/etc/profile.d/conda.sh"
+    conda activate "${DTFM_CONDA_ENV:-dtfm}"
+  fi
 fi
 PYTHON="${PYTHON:-python}"
-if [[ "${DEVICE}" == "cuda" || "${DEVICE}" == "auto" ]]; then
+if [[ "${HOST_OS}" != "Darwin" && ( "${DEVICE}" == "cuda" || "${DEVICE}" == "auto" ) ]]; then
   # The legacy CUDA path needs its CuPy/NCCL library setup. Loading those
   # libraries in ROCm, XPU, or DirectML environments can initialize the wrong
   # accelerator runtime.
@@ -126,13 +131,14 @@ fi
 # env.sh defaults GLOO to lo for local smokes. Multi-laptop runs must use
 # tailscale0 or the peer cannot connect to MASTER_IP.
 if [[ "${DTFM_LOCAL:-0}" == "1" ]]; then
-  case "$(uname -s)" in
+  case "${HOST_OS}" in
+    Darwin) export GLOO_SOCKET_IFNAME="${GLOO_SOCKET_IFNAME:-lo0}" ;;
     MINGW*|MSYS*|CYGWIN*) unset GLOO_SOCKET_IFNAME ;;
     *) export GLOO_SOCKET_IFNAME=lo ;;
   esac
 elif [[ -d /sys/class/net/tailscale0 ]]; then
   export GLOO_SOCKET_IFNAME=tailscale0
-else
+elif [[ "${HOST_OS}" != "Darwin" ]]; then
   export GLOO_SOCKET_IFNAME="${GLOO_SOCKET_IFNAME:-lo}"
 fi
 export PYTHONUNBUFFERED=1

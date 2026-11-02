@@ -1,9 +1,12 @@
 # Device setup
 
-DT-FM can run its GPipe training path on CPU, NVIDIA CUDA, AMD ROCm, Intel XPU,
-or Intel UHD DirectML. CPU is the portable distributed baseline. Accelerator
-data parallelism remains vendor-specific, while pipeline ranks can mix devices
+DT-FM includes GPipe device paths for CPU, NVIDIA CUDA, AMD ROCm, Intel XPU,
+Intel UHD DirectML, and Apple MPS. CPU is the portable distributed baseline.
+Accelerator data parallelism remains vendor-specific, while pipeline ranks can mix devices
 through CPU-staged Gloo communication.
+
+For native Mac setup, MPS smoke tests, mixed-computer commands, and the current
+hardware-validation limits, see [macOS and Apple silicon](MACOS.md).
 
 ## CPU on Windows
 
@@ -107,8 +110,8 @@ the repository test with:
 ```
 
 Automatic device selection uses XPU when the installed PyTorch build reports
-`torch.xpu.is_available()`. If no supported NVIDIA, AMD, or Intel accelerator is
-available, `--device auto` falls through to CPU. Explicit `--device xpu` remains
+`torch.xpu.is_available()`. The core runner also checks Apple MPS before
+`--device auto` falls through to CPU. Explicit `--device xpu` remains
 strict and reports an error instead of silently falling back.
 
 Current restrictions:
@@ -197,7 +200,7 @@ Current restrictions:
 ## Heterogeneous pipeline training with Gloo
 
 Different pipeline ranks can compute on CPU, NVIDIA CUDA, AMD ROCm, Intel XPU,
-or Intel UHD DirectML. Gloo sends activations and gradients as CPU tensors, so
+Apple MPS, or Intel UHD DirectML. Gloo sends activations and gradients as CPU tensors, so
 the ranks do not need a shared GPU collective backend. This is pipeline
 parallelism only. Set `--data-group-size 1`, use FP32, and select
 `--tensor-comm gloo` on every rank.

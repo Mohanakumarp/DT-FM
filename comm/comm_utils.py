@@ -185,6 +185,8 @@ def _synchronize_tensor(tensor):
         torch.cuda.synchronize(tensor.device)
     elif tensor.device.type == 'xpu':
         torch.xpu.synchronize(tensor.device)
+    elif tensor.device.type == 'mps':
+        torch.mps.synchronize()
     elif tensor.device.type == 'privateuseone':
         # DirectML has no public synchronize call. Reading an existing scalar
         # waits for the queued copy without allocating another device tensor.

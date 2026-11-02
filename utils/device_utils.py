@@ -1,10 +1,44 @@
 import sys
+from types import SimpleNamespace
 
 import torch
 
 
 def _xpu_available():
     return hasattr(torch, 'xpu') and torch.xpu.is_available()
+
+
+def _mps_available():
+    return hasattr(torch.backends, 'mps') and torch.backends.mps.is_available()
+
+
+def _require_mps():
+    if not hasattr(torch.backends, 'mps') or not torch.backends.mps.is_built():
+        raise RuntimeError('--device mps requires a macOS PyTorch build with MPS enabled; '
+                           'use native arm64 Python on Apple silicon or choose --device cpu')
+    if not _mps_available():
+        raise RuntimeError('--device mps is unavailable; check the macOS version and Metal GPU '
+                           'requirements for your installed PyTorch release, or choose --device cpu')
+
+
+def resolve_task_device(requested):
+    """Select compute for the QA/summarization trainers, which always communicate on CPU."""
+    if requested not in ('cpu', 'cuda', 'mps'):
+        raise ValueError('task training requires cpu, cuda, or mps')
+    return resolve_device(SimpleNamespace(device=requested, cuda_id=0))
+
+
+def synchronize_device(device):
+    """Wait for compute before recording elapsed time or reusing host buffers."""
+    if device.type == 'cuda':
+        torch.cuda.synchronize(device)
+    elif device.type == 'xpu':
+        torch.xpu.synchronize(device)
+    elif device.type == 'mps':
+        torch.mps.synchronize()
+    elif device.type == 'privateuseone':
+        # DirectML has no public synchronize API.
+        torch.zeros(1, device=device).item()
 
 
 def _load_directml():
@@ -57,12 +91,18 @@ def resolve_device(args):
             requested = 'cuda'
         elif xpu_available:
             requested = 'xpu'
+        elif _mps_available():
+            requested = 'mps'
         else:
             requested = 'cpu'
 
     if requested == 'cpu':
         device = torch.device('cpu')
         backend = 'cpu'
+    elif requested == 'mps':
+        _require_mps()
+        device = torch.device('mps')
+        backend = 'mps'
     elif requested == 'rocm':
         if not hip_available:
             raise RuntimeError(
@@ -113,13 +153,25 @@ def resolve_device(args):
 
 
 def validate_runtime_args(args, device):
+    if args.device_backend == 'mps' and getattr(args, 'tensor_comm', 'auto') == 'auto':
+        args.tensor_comm = 'gloo'
     cpu_staged_gloo = _uses_cpu_staged_gloo(args)
-    if args.fp16 and args.device_backend in ('cpu', 'xpu', 'directml'):
-        raise ValueError('--fp16 is not supported by the CPU/XPU/DirectML pipeline; use FP32')
+    if args.fp16 and args.device_backend in ('cpu', 'xpu', 'directml', 'mps'):
+        raise ValueError('--fp16 is not supported by the CPU/XPU/DirectML/MPS pipeline; use FP32')
     if args.fp16 and cpu_staged_gloo:
         raise ValueError('CPU-staged Gloo pipeline communication currently requires FP32')
     if args.profiling == 'tidy_profiling' and device.type != 'cuda':
         raise ValueError('tidy profiling requires CUDA or ROCm; use --profiling no-profiling')
+    if args.device_backend == 'mps':
+        if args.world_size != 1 and not cpu_staged_gloo:
+            raise ValueError('MPS multi-process execution requires pipeline-only Gloo')
+        if args.tensor_comm != 'gloo':
+            raise ValueError('MPS requires --tensor-comm gloo')
+        if args.profiling != 'no-profiling':
+            raise ValueError('MPS currently requires --profiling no-profiling')
+        if args.data_group_size != 1:
+            raise ValueError('MPS data parallelism is not implemented in dist_runner.py; '
+                             'the QA and summarization trainers support CPU-staged data replicas')
     if args.device_backend == 'xpu':
         if args.world_size != 1 and not cpu_staged_gloo:
             raise ValueError('Intel XPU multi-process execution requires pipeline-only Gloo')
@@ -145,6 +197,8 @@ def validate_runtime_args(args, device):
 def describe_device(device, backend, directml_name=None):
     if backend == 'cpu':
         return 'CPU'
+    if backend == 'mps':
+        return 'Apple Metal GPU (MPS)'
     if backend == 'xpu':
         index = device.index or 0
         return 'Intel XPU device {} ({})'.format(

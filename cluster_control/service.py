@@ -302,10 +302,10 @@ class Service:
             device = next((item for item in capabilities["devices"] if item["id"] == device_id), None)
             if not device or device_id not in json.loads(agent["shared_devices"]):
                 raise APIError(403, "This device has not been shared by its contributor")
-            if device["backend"] not in ("cpu", "cuda") or not capabilities["runtime_ready"]:
-                raise APIError(400, "QA jobs currently require a ready CPU or NVIDIA CUDA runtime")
+            if device["backend"] not in ("cpu", "cuda", "mps") or not capabilities["runtime_ready"]:
+                raise APIError(400, "QA jobs currently require a ready CPU or NVIDIA CUDA or Apple MPS runtime")
             physical = (capabilities["host_id"], device_id)
-            if device["backend"] == "cuda" and physical in physical_gpus:
+            if device["backend"] in ("cuda", "mps") and physical in physical_gpus:
                 raise APIError(409, "The same physical GPU was selected through multiple agents")
             physical_gpus.add(physical)
             assignments.append({"rank": rank, "agent_id": agent_id, "device_id": device_id,
@@ -407,7 +407,7 @@ class Service:
                     raise APIError(409, "The coordinator address and port are already in use by another job")
                 for a in spec["assignments"]:
                     for b in other_spec["assignments"]:
-                        if a["device"]["backend"] == "cuda" and (a["host_id"], a["device_id"]) == (b["host_id"], b["device_id"]):
+                        if a["device"]["backend"] in ("cuda", "mps") and (a["host_id"], a["device_id"]) == (b["host_id"], b["device_id"]):
                             raise APIError(409, "A selected physical GPU is already reserved")
             db.execute("UPDATE jobs SET status='preparing', updated=? WHERE id=?", (self.clock(), job_id))
             db.execute("UPDATE assignments SET state='preparing' WHERE job_id=?", (job_id,))

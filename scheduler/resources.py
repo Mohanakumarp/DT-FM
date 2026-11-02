@@ -1,12 +1,19 @@
 """Read current allocation headroom, without initializing unrelated GPU backends."""
 import ctypes
 import os
+import platform
 from pathlib import Path
 import socket
 import time
 
 
 def host_memory():
+    if platform.system() == 'Darwin':
+        import psutil
+        memory = psutil.virtual_memory()
+        return dict(total_bytes=memory.total, available_bytes=memory.available,
+                    physical_available_bytes=memory.available,
+                    source='psutil.virtual_memory available: macOS unified host memory')
     if os.name == 'nt':
         class MemoryStatus(ctypes.Structure):
             _fields_ = [('length', ctypes.c_ulong), ('load', ctypes.c_ulong)] + [
@@ -27,7 +34,7 @@ def host_memory():
                     source='GlobalMemoryStatusEx: min(available physical, available commit)')
     meminfo = Path('/proc/meminfo')
     if not meminfo.is_file():
-        raise RuntimeError('automatic host memory discovery requires Windows or Linux')
+        raise RuntimeError('automatic host memory discovery requires Windows, Linux, or macOS')
     fields = {line.split(':')[0]: int(line.split()[1]) * 1024
               for line in meminfo.read_text().splitlines() if ':' in line}
     available = fields['MemAvailable']
@@ -71,6 +78,21 @@ def resource_snapshot(args, device):
                   cpu_threads=torch.get_num_threads(), logical_cpus=os.cpu_count(),
                   device_memory=None, device_pool=None)
     if backend == 'cpu':
+        return result
+    if backend == 'mps':
+        recommended = getattr(torch.mps, 'recommended_max_memory', None)
+        allocated = getattr(torch.mps, 'driver_allocated_memory', None)
+        if recommended is None or allocated is None:
+            raise RuntimeError('MPS memory telemetry is unavailable; use an explicit static schedule')
+        total = int(recommended())
+        if total <= 0:
+            raise RuntimeError('MPS reported no recommended working-set budget; use a static schedule')
+        free = min(host['available_bytes'], max(0, total - int(allocated())))
+        # The allocator also constrains all CPU/MPS ranks together in the host
+        # pool. This device pool is a working-set ceiling, not extra RAM.
+        result.update(device_memory=dict(available_bytes=free, total_bytes=total,
+                                        source='min(host available, MPS recommended working set minus driver allocation); estimate'),
+                      device_pool='mps:shared-metal-gpu')
         return result
     if backend == 'directml':
         raise RuntimeError('DirectML does not expose supported free-device-memory telemetry; '

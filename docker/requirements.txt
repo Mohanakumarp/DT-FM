@@ -1,4 +1,4 @@
-# Shared container dependencies. Both images use Python 3.10 and PyTorch 2.8.0.
+# Shared container dependencies. All images use Python 3.10 and PyTorch 2.8.0.
 -r ../requirements.txt
 -r ../requirements-mlflow.txt
 -r ../requirements-mt5.txt

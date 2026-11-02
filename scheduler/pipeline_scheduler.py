@@ -22,7 +22,7 @@ def validate_compute_profile(profile, size):
     for rank, entry in enumerate(ranks):
         if not isinstance(entry, dict) or type(entry.get('measured_rank')) is not int or entry['measured_rank'] != rank:
             raise ValueError('compute entries must be in measured rank order')
-        if entry.get('device') not in ('cpu', 'cuda', 'rocm', 'xpu', 'directml'):
+        if entry.get('device') not in ('cpu', 'cuda', 'rocm', 'xpu', 'directml', 'mps'):
             raise ValueError('compute entry requires an explicit device')
         if type(entry.get('max_layers')) is not int or not 1 <= entry['max_layers'] <= 4096:
             raise ValueError('max_layers must be an integer from 1 to 4096')

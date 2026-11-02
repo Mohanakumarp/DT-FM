@@ -9,6 +9,7 @@ from comm.comm_utils import *
 from modules.dist_gpt_pp_module import *
 from data_parallel.dist_dp_utils import get_dp_module
 from optimizer.optimizer import get_fp16_optimizer
+from utils.device_utils import synchronize_device
 
 
 def _cupy_external_stream(torch_stream):
@@ -17,14 +18,7 @@ def _cupy_external_stream(torch_stream):
 
 
 def _synchronize_device(device):
-    if device.type == 'cuda':
-        torch.cuda.synchronize(device)
-    elif device.type == 'xpu':
-        torch.xpu.synchronize(device)
-    elif device.type == 'privateuseone':
-        # DirectML queues work asynchronously but does not expose a public
-        # synchronize API. Reading a device scalar waits for queued work.
-        torch.zeros(1, device=device).item()
+    synchronize_device(device)
 
 
 class GpipeAsync:

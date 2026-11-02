@@ -2,7 +2,8 @@
 
 Docker packages the Python environment and the repository's training, scheduler,
 profiling, reporting, dataset, and MLflow tools. The default image uses CPU;
-the `cuda` target adds NVIDIA CUDA and CuPy/NCCL. Downloaded data is kept outside
+the `cuda` target adds NVIDIA CUDA and CuPy/NCCL. The `mac` target packages
+the CPU runtime for Apple silicon's ARM64 architecture. Downloaded data is kept outside
 the image, so builds do not need datasets or a GPU.
 
 ## Quick start
@@ -12,8 +13,8 @@ containers on Windows/macOS.
 
 Prebuilt images are published to [Docker Hub](https://hub.docker.com/r/suryanarayanaant/dtfm):
 `suryanarayanaant/dtfm:cpu` (also `:latest`) and `suryanarayanaant/dtfm:cuda`.
-These published images target `linux/amd64`. ARM machines can build the CPU
-image locally with the command below.
+These published images target `linux/amd64`. Apple silicon Macs can build
+the `:mac` image using the commands below; publishing that tag is a separate step.
 
 Run the CPU smoke test without cloning or building the project:
 
@@ -60,6 +61,55 @@ are resolved at build time. Builds need access to the image registry, PyPI,
 PyTorch's wheel index, and the OS package repositories. After building, the
 synthetic smoke tests work offline.
 
+## Apple silicon Docker image
+
+The `:mac` image runs Linux ARM64 with CPU compute on M-series Macs. It shares
+the CPU image's dependency pins, training commands, and persistent storage.
+Intel Macs use `:cpu`. Apple GPU training uses the native [MPS setup](MACOS.md).
+Docker Desktop does not pass the Apple GPU to this Linux training container;
+see [Docker's GPU passthrough documentation](https://docs.docker.com/desktop/features/gpu/).
+
+Build and run the Mac image from the checkout root:
+
+```bash
+docker buildx build --target mac --platform linux/arm64 --load -t dtfm:mac .
+docker run --rm --init -e OMP_NUM_THREADS=2 -e MKL_NUM_THREADS=2 dtfm:mac
+```
+
+Use the Mac Compose override for training, distributed ranks, and MLflow:
+
+```bash
+docker compose -f compose.yaml -f compose.mac.yaml up --build train
+docker compose -f compose.yaml -f compose.mac.yaml up --build rank0 rank1
+```
+
+For later commands, select the same files once in your shell:
+
+```bash
+export COMPOSE_FILE=compose.yaml:compose.mac.yaml
+docker compose run --rm train qa --help
+docker compose run --rm train summarize --help
+docker compose up --build -d --wait mlflow
+docker compose run --rm tracking-demo
+```
+
+The override selects `:mac`, the `mac` build target, and `linux/arm64` for all
+CPU services. Volumes, thread limits, and commands remain configured in
+`compose.yaml`. No NVIDIA GPU reservation is needed. The image can also run on
+Linux ARM64 hosts. Building or running it on x86 uses emulation, which can be slow.
+
+To publish the tag to your registry after validating the build:
+
+```bash
+docker buildx build --target mac --platform linux/arm64 \
+  -t suryanarayanaant/dtfm:mac --push .
+```
+
+After publication, a Mac can run `docker run --rm --init
+suryanarayanaant/dtfm:mac` without a checkout. Compose can pull it with
+`DTFM_IMAGE=suryanarayanaant/dtfm` and the Mac override. CI builds and tests
+this image on a native Linux ARM64 runner; CI does not publish registry tags.
+
 ## Distributed training and checks
 
 Run two pipeline ranks in separate containers on the Compose network:
@@ -82,8 +132,9 @@ docker compose run --rm train test
 docker compose run --rm train python scripts/verify_comm_probe.py --world-size 2 --output-dir /app/logs/probe
 ```
 
-The Docker CI workflow builds both images, runs the existing tests, checks
-training between two containers, and runs the MLflow demo. CUDA CI checks
+The Docker CI workflow builds and tests the CPU image on x86 and the Mac image
+on ARM64. Each runs the existing tests, core/QA/summarization smoke tests,
+training between two containers, and the MLflow demo. CUDA CI checks
 library imports; executing GPU training requires a GPU runner.
 
 `DTFM_THREADS` sets the CPU threads per process in Compose (default 2). The
@@ -204,6 +255,9 @@ visibility to choose a device. CPU is the portable fallback for AMD/Intel hosts.
 The repository's native ROCm, XPU, and WSL DirectML setups are described in
 [SETUP.md](SETUP.md); those vendor runtimes are not included in these images.
 Docker cannot provide missing hardware, host drivers, or DirectML device access.
+
+Apple MPS GPU training runs natively on macOS, using [MACOS.md](MACOS.md).
+Docker Desktop's Linux VM uses the CPU path on a Mac.
 
 ## Multiple machines
 

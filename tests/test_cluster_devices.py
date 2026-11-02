@@ -91,6 +91,29 @@ class DeviceTests(DeviceFixture, unittest.TestCase):
             self.service.preview_job(self.owner, self.cluster, {"config": {"pipeline_size": 2},
                 "devices": [one["agent_id"] + ":gpu-0", two["agent_id"] + ":gpu-0"]})
 
+    def test_mps_can_pair_and_launch_with_cpu(self):
+        from cluster_control.worker import command_for, select_devices
+        agent = self.pair(self.owner, capabilities("mps"))
+        job = self.service.create_job(self.owner, self.cluster, {"config": {"pipeline_size": 2},
+            "devices": self.selection + [agent["agent_id"] + ":gpu-0"]})
+        command = command_for(job["spec"], 1, "logs/smoke/mps-test")
+        self.assertEqual(command[command.index("--device") + 1], "mps")
+        caps = {"devices": [{"id": "mps-0", "backend": "mps", "index": 0}]}
+        self.assertEqual(select_devices(caps, "mps:0"), ["mps-0"])
+
+    def test_mps_physical_gpu_cannot_be_duplicated_or_reserved_twice(self):
+        one = self.pair(self.owner, capabilities("mps"))
+        two = self.pair(self.peer, capabilities("mps"))
+        with self.assertRaisesRegex(APIError, "same physical GPU"):
+            self.service.preview_job(self.owner, self.cluster, {"config": {"pipeline_size": 2},
+                "devices": [one["agent_id"] + ":gpu-0", two["agent_id"] + ":gpu-0"]})
+        first = self.service.create_job(self.owner, self.cluster, {"devices": [one["agent_id"] + ":gpu-0"]})
+        self.service.start_job(self.owner, first["id"])
+        second = self.service.create_job(self.owner, self.cluster, {"config": {"port": 29991},
+            "devices": [two["agent_id"] + ":gpu-0"]})
+        with self.assertRaisesRegex(APIError, "physical GPU.*reserved"):
+            self.service.start_job(self.owner, second["id"])
+
     def test_multi_host_jobs_reject_loopback_addresses(self):
         second = self.pair(self.owner, capabilities(host="other-host"))
         with self.assertRaisesRegex(APIError, "private addresses"):

@@ -23,6 +23,7 @@ from scripts.train_mt5_pipeline import send, receive, clip_gradients
 from utils.training_progress import TrainingProgress
 from utils.gradient_compression import SparseGradientSynchronizer
 from utils.qa_checkpoints import checkpoint_candidates, collect_errors, load_common_checkpoint, save_checkpoint
+from utils.device_utils import resolve_task_device, synchronize_device
 
 
 def parse_args():
@@ -35,7 +36,7 @@ def parse_args():
     parser.add_argument("--world-size", type=int, default=1)
     parser.add_argument("--pipeline-size", type=int, default=1)
     parser.add_argument("--dist-url", default="tcp://127.0.0.1:29500")
-    parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
+    parser.add_argument("--device", choices=["cpu", "cuda", "mps"], default="cpu")
     parser.add_argument("--batch-size", type=int, default=24, help="features per data replica, NOT per pipeline stage")
     parser.add_argument("--micro-batch-size", type=int, default=4)
     parser.add_argument("--train-examples", type=int, default=8000)
@@ -183,7 +184,7 @@ def pipeline_batch(stage, batch, args, device, training=True, progress=None, ste
                            input_ids=batch["input_ids"][start:stop].to(device) if args.pipeline_rank == 0 else None)
             if last:
                 loss = span_loss(output, values["start_positions"][start:stop], values["end_positions"][start:stop])
-                loss_sum += loss.detach().double().cpu()
+                loss_sum += loss.detach().cpu().double()
                 if not training:
                     predictions.append(output.detach().cpu())
                 if training:
@@ -287,6 +288,7 @@ def run(args, progress=None):
             progress.phase(name, **details)
 
     phase("loading_model")
+    device = resolve_task_device(args.device)
     print(json.dumps({"event": "loading_model", "rank": args.rank, "model": args.model}), flush=True)
     model = load_model(args)  # CPU load before the rendezvous, including on CUDA hosts.
     if args.prepare_only:
@@ -301,9 +303,6 @@ def run(args, progress=None):
     boundaries = qa_layout(model.config, args.world_size, args.pipeline_size)
     if args.max_length > model.config.max_position_embeddings:
         raise ValueError("max-length exceeds the model's position embeddings")
-    device = torch.device(args.device)
-    if args.device == "cuda" and not torch.cuda.is_available():
-        raise ValueError("CUDA requested but unavailable")
     if device.type == "cuda":
         torch.cuda.set_device(0)
         torch.cuda.reset_peak_memory_stats()
@@ -455,8 +454,7 @@ def run(args, progress=None):
                     clip_gradients(stage, args.max_grad_norm, args)
                     phase("optimizer", step=step + 1)
                     optimizer.step()
-                    if device.type == "cuda":
-                        torch.cuda.synchronize()
+                    synchronize_device(device)
                     seconds = time.monotonic() - started
                     step += 1
                     if step > args.warmup_steps:

@@ -1,0 +1,21 @@
+# Apple silicon override. Use with: docker compose -f compose.yaml -f compose.mac.yaml
+x-mac: &mac
+  image: "${DTFM_IMAGE:-dtfm}:mac"
+  platform: linux/arm64
+  build:
+    context: .
+    target: mac
+
+services:
+  train:
+    <<: *mac
+  rank0:
+    <<: *mac
+  rank1:
+    <<: *mac
+  mlflow:
+    <<: *mac
+    healthcheck:
+      test: [CMD, curl, --fail, --silent, --show-error, --max-time, "3", "http://127.0.0.1:5000/health"]
+  tracking-demo:
+    <<: *mac

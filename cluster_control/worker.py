@@ -117,7 +117,7 @@ def command_for(spec, rank, output, prepare=False):
     if parsed.scheme != "tcp" or not parsed.hostname or parsed.port != config["port"] or parsed.path or parsed.username:
         raise ValueError("Invalid training coordinator address")
     assignment = spec["assignments"][rank]
-    if assignment["rank"] != rank or assignment["device"]["backend"] not in ("cpu", "cuda"):
+    if assignment["rank"] != rank or assignment["device"]["backend"] not in ("cpu", "cuda", "mps"):
         raise ValueError("Unsupported assignment")
     arguments = [sys.executable, "-u", str(REPOSITORY / "scripts/train_qa_pipeline.py"),
                  "--rank", str(rank), "--world-size", str(size), "--pipeline-size", str(config["pipeline_size"]),

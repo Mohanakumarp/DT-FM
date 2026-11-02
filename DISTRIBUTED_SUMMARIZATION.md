@@ -14,6 +14,9 @@ sudo docker push suryanarayanaant/dtfm:cuda
 # Optional CPU runtime for laptops without NVIDIA GPUs:
 sudo docker build --target cpu -t suryanarayanaant/dtfm:cpu .
 sudo docker push suryanarayanaant/dtfm:cpu
+# Optional ARM64 CPU runtime for Apple silicon Docker Desktop:
+sudo docker buildx build --target mac --platform linux/arm64 \
+  -t suryanarayanaant/dtfm:mac --push .
 ```
 
 New laptops pull the image. Later model, dataset, column, hyperparameter, and
@@ -81,6 +84,14 @@ Other Linux ranks change `--rank`. Windows setup and launch commands are in
 hosts use `:cpu`, remove `--gpus all`, and set `--device cpu`. Device choices
 can differ. All ranks must agree on experiment settings. The CUDA image supports
 NVIDIA GPUs; it does not contain AMD/Intel GPU runtimes.
+
+Apple silicon containers use the ARM64 `:mac` image with `--device cpu`;
+see [the Mac Docker workflow](DOCKER.md#apple-silicon-docker-image) for local
+builds and single-machine distributed containers. The Linux host-networking
+cluster recipe above does not apply to Docker Desktop on macOS.
+
+The native trainer also accepts `--device mps` on Apple silicon. Run it outside
+Docker using the [macOS setup](MACOS.md); its network traffic still uses CPU-staged Gloo.
 
 For a communication check, add `--smoke`, set `--steps 2`, and set
 `--validation-batches 1` on every rank. Smoke uses a tiny random mT5 with

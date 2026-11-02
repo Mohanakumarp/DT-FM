@@ -69,6 +69,8 @@ class RunMetrics:
             'rank': self.args.rank,
             'world_size': self.args.world_size,
             'pipeline_group_size': self.args.pipeline_group_size,
+            'device': {'backend': getattr(self.args, 'device_backend', 'cpu'),
+                       'requested': getattr(self.args, 'device', 'auto')},
             'model': {
                 'seq_length': self.args.seq_length,
                 'embedding_dim': self.args.embedding_dim,

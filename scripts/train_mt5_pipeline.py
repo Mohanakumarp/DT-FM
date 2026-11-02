@@ -21,6 +21,7 @@ from transformers import (
 from modules.mt5_partition import MT5Partition, FullModelStage, activation_shapes, pipeline_layout
 from task_datasets.summarization import load_summarization_splits, tokenize_summaries
 from utils.gradient_compression import SparseGradientSynchronizer
+from utils.device_utils import resolve_task_device, synchronize_device
 
 
 def parse_args():
@@ -40,7 +41,7 @@ def parse_args():
     parser.add_argument("--train-file", help="local training file for --dataset json/csv/parquet")
     parser.add_argument("--validation-file", help="local validation file")
     parser.add_argument("--dist-url", default="tcp://127.0.0.1:29500")
-    parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
+    parser.add_argument("--device", choices=["cpu", "cuda", "mps"], default="cpu")
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--micro-batch-size", type=int, default=1)
     parser.add_argument("--source-length", type=int, default=512)
@@ -140,7 +141,11 @@ def clip_gradients(stage, max_norm, args):
     norm_squared = torch.zeros((), dtype=torch.float64)
     for p in stage.parameters():
         if p.grad is not None:
-            norm_squared += p.grad.detach().double().square().sum().cpu()
+            gradient = p.grad.detach()
+            # MPS cannot allocate float64 tensors. Keep its norm reduction on CPU.
+            if gradient.device.type == "mps":
+                gradient = gradient.cpu()
+            norm_squared += gradient.double().square().sum().cpu()
     if args.pipeline_size > 1:
         dist.all_reduce(norm_squared, group=args.pipeline_group)
     coefficient = min(1.0, max_norm / (norm_squared.sqrt().item() + 1e-6))
@@ -184,7 +189,7 @@ def pipeline_batch(stage, batch, micro_batch_size, device, training, args):
             output = stage(inputs, mask[start:start + count].to(device), labels[start:start + count].to(device),
                            input_ids=batch["input_ids"][start:start + count].to(device) if rank == 0 else None)
             if rank == args.pipeline_size - 1:
-                loss_sum += output.detach().double().cpu()
+                loss_sum += output.detach().cpu().double()
                 if training:
                     (output / global_tokens).backward()
             else:
@@ -267,9 +272,7 @@ def save_checkpoint(args, stage, optimizer, step, config, tokenizer, compressor=
 
 def run(args):
     torch.manual_seed(args.seed)
-    device = torch.device(args.device)
-    if args.device == "cuda" and not torch.cuda.is_available():
-        raise ValueError("CUDA requested but unavailable")
+    device = resolve_task_device(args.device)
     if args.smoke:
         model = MT5ForConditionalGeneration(MT5Config(
             vocab_size=64, d_model=16, d_ff=32, d_kv=8,
@@ -398,6 +401,7 @@ def run(args):
                         train.sampler.set_epoch(epoch)
                     iterator = iter(train)
                     batch = next(iterator)
+            synchronize_device(device)
             started = time.monotonic()
             loss_sum, tokens = pipeline_batch(stage, batch, args.micro_batch_size, device, True, args)
             sync_started = time.monotonic()
@@ -410,6 +414,7 @@ def run(args):
             if args.gradient_compression != "dgc":
                 clip_gradients(stage, args.max_grad_norm, args)
             optimizer.step()
+            synchronize_device(device)
             record = {"step": step + 1, "train_loss": loss_sum / tokens, "seconds": time.monotonic() - started,
                       "gradient_sync_seconds": sync_seconds, **communication}
             metrics.write(json.dumps(record) + "\n")
@@ -436,6 +441,7 @@ def run(args):
 
 def main():
     args = parse_args()
+    resolve_task_device(args.device)  # Fail before rendezvous when the requested GPU is unavailable.
     dist.init_process_group("gloo", init_method=args.dist_url, rank=args.rank, world_size=args.world_size, timeout=timedelta(seconds=args.timeout_seconds))
     try:
         run(args)

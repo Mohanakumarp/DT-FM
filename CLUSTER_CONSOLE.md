@@ -2,7 +2,7 @@
 
 An initial local control service, browser dashboard, and Python worker agent.
 The control service needs only Python's standard library. Training runs on
-paired computers using the existing BERT QA runner, CPU/NVIDIA CUDA, FP32,
+paired computers using the existing BERT QA runner, CPU/NVIDIA CUDA/Apple MPS, FP32,
 and CPU-staged Gloo communication.
 
 ## Start the dashboard
@@ -90,12 +90,15 @@ python -m cluster_control.worker run
 ```
 
 The pairing command prompts for the code without echoing it. `--devices` accepts
-`cpu`, `cuda:0`, comma-separated devices such as `cuda:0,cuda:1`, or `all`. Pairing
+`cpu`, `cuda:0`, `mps:0`, comma-separated devices such as `cuda:0,cuda:1`, or `all`. Pairing
 records a local maximum set of devices the agent may use. Dashboard pause/resume
 cannot expand this local consent. Pair a new agent to contribute additional
 devices. The **Devices** page shows supported, unsupported, offline, shared,
 reserved, and training devices. Only a computer's contributor can pause/resume
 its sharing, including when the cluster owner is a different user.
+
+For native Apple silicon setup and GPU validation commands, see [MACOS.md](MACOS.md).
+MPS jobs use FP32 compute and CPU-staged Gloo just like the QA CPU/CUDA path.
 
 Worker credentials default to `.cluster-data/worker.json`. POSIX token files are
 created with mode `0600`; protect the directory using normal Windows account

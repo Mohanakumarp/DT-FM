@@ -29,12 +29,13 @@ RUN UV_HTTP_TIMEOUT=600 uv pip install --python /opt/venv/bin/python -r docker/r
     && ldconfig \
     && python -c "import torch, cupy; from cupy.cuda import nccl; print(torch.__version__, cupy.__version__, nccl.get_version())"
 COPY . .
-RUN mkdir -p logs trace_json task_datasets/data
+RUN find scripts docker -type f -name '*.sh' -exec sed -i 's/\r$//' {} + \
+    && mkdir -p logs trace_json task_datasets/data
 ENTRYPOINT ["bash", "/app/docker/entrypoint.sh"]
 CMD ["smoke"]
 
-# Portable CPU runtime for linux/amd64 and linux/arm64.
-FROM python:3.10-slim-bookworm AS cpu
+# Shared CPU runtime for linux/amd64 and linux/arm64.
+FROM python:3.10-slim-bookworm AS cpu-runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -51,6 +52,18 @@ COPY docker/requirements.txt ./docker/requirements.txt
 RUN uv pip install --python /usr/local/bin/python -r docker/requirements.txt \
     && uv pip check --python /usr/local/bin/python
 COPY . .
-RUN mkdir -p logs trace_json task_datasets/data
+RUN find scripts docker -type f -name '*.sh' -exec sed -i 's/\r$//' {} + \
+    && mkdir -p logs trace_json task_datasets/data
 ENTRYPOINT ["bash", "/app/docker/entrypoint.sh"]
 CMD ["smoke"]
+
+# Apple silicon Docker Desktop runs Linux ARM64 with CPU compute.
+# MPS training requires the native macOS setup, outside this container.
+FROM cpu-runtime AS mac
+ARG TARGETARCH
+RUN test "${TARGETARCH}" = arm64 || \
+    (echo 'Build the mac target with --platform linux/arm64. Intel Macs use the cpu target.' >&2; exit 1)
+LABEL org.opencontainers.image.description="DT-FM ARM64 CPU training for Apple silicon Docker Desktop. Apple MPS GPU training requires native macOS."
+
+# Keep CPU as the default target for existing docker build/Compose commands.
+FROM cpu-runtime AS cpu

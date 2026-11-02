@@ -35,6 +35,15 @@ Run a CPU training smoke test from a clone on Linux, Windows, or macOS:
 docker compose up --build train
 ```
 
+On an Apple silicon Mac, build and run the ARM64 `:mac` image:
+
+```bash
+docker compose -f compose.yaml -f compose.mac.yaml up --build train
+```
+
+This Docker image uses CPU compute. For Apple GPU training, use the native
+[MPS setup](./MACOS.md).
+
 For two pipeline workers in separate containers:
 
 ```bash
@@ -45,6 +54,10 @@ See [DOCKER.md](./DOCKER.md) for persistent datasets and logs, custom training,
 MLflow tracking, the NVIDIA CUDA image, and training across multiple machines.
 
 ## Local setup
+
+For native macOS CPU training and Apple silicon GPU compute with MPS, see
+[macOS setup and smoke tests](./MACOS.md). This includes mixed-device Gloo
+pipeline ranks and Mac worker pairing for the cluster console.
 
 For a three-computer college-lab experiment with automatic Python/data setup,
 equal-versus-resource allocation comparisons, and an offline report for review,
