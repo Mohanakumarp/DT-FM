@@ -58,6 +58,11 @@ class MT5Partition(nn.Module):
         self.encoder_norm = model.encoder.final_layer_norm if self.start <= encoder_end < self.end else None
         self.decoder_norm = model.decoder.final_layer_norm if self.start <= decoder_end < self.end else None
         self.lm_head = model.lm_head if self.start <= decoder_end + 1 < self.end else None
+        import inspect
+        sample_block = model.encoder.block[0] if len(model.encoder.block) > 0 else None
+        self.supports_cache_position = bool(
+            sample_block is not None and "cache_position" in inspect.signature(sample_block.forward).parameters
+        )
         self.dropout = nn.Dropout(self.config.dropout_rate)
 
     def forward(self, state, attention_mask, labels, input_ids=None):
@@ -81,10 +86,11 @@ class MT5Partition(nn.Module):
                 state["encoded"] = self.dropout(self.shared(input_ids))
                 state["decoded"] = self.shared(decoder_ids)
             elif unit <= encoder_end:
+                enc_kwargs = {"cache_position": torch.arange(source_length, device=labels.device)} if self.supports_cache_position else {}
                 outputs = self.encoder_blocks[str(unit - 1)](
                     state["encoded"], attention_mask=source_mask,
                     position_bias=state.get("encoder_bias"), use_cache=False,
-                    cache_position=torch.arange(source_length, device=labels.device),
+                    **enc_kwargs,
                 )
                 state["encoded"], state["encoder_bias"] = outputs[:2]
                 if unit == encoder_end:
@@ -94,6 +100,7 @@ class MT5Partition(nn.Module):
                 index = unit - encoder_end - 1
                 if index == 0:
                     state["decoded"] = self.dropout(state["decoded"])
+                dec_kwargs = {"cache_position": torch.arange(target_length, device=labels.device)} if self.supports_cache_position else {}
                 outputs = self.decoder_blocks[str(index)](
                     state["decoded"], attention_mask=causal_mask,
                     position_bias=state.get("decoder_bias"),
@@ -101,7 +108,7 @@ class MT5Partition(nn.Module):
                     # Cross-attention has no learned relative bias. Recomputing
                     # its constant padding bias avoids transmitting another tensor.
                     encoder_decoder_position_bias=None, use_cache=False,
-                    cache_position=torch.arange(target_length, device=labels.device),
+                    **dec_kwargs,
                 )
                 state["decoded"], state["decoder_bias"] = outputs[:2]
                 if unit == decoder_end:

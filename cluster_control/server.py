@@ -49,6 +49,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_PUT(self):
         self.handle_request()
 
+    def do_DELETE(self):
+        self.handle_request()
+
     def cookie(self, token, clear=False):
         age = 0 if clear else self.server.service.SESSION_SECONDS
         return "dtfm_session=%s; Path=/; HttpOnly; SameSite=Strict; Max-Age=%d%s" % (
@@ -173,6 +176,8 @@ class Handler(BaseHTTPRequestHandler):
                 return {"agents": service.agents(user_id, cluster_id)}
             if len(parts) == 6 and parts[3] == "agents" and parts[5] == "sharing" and self.command == "POST":
                 return service.set_sharing(user_id, cluster_id, parts[4], body)
+            if len(parts) == 5 and parts[3] == "agents" and self.command in ("POST", "DELETE"):
+                return service.delete_agent(user_id, cluster_id, parts[4])
             if parts[3:] == ["preview"] and self.command == "POST":
                 return service.preview_job(user_id, cluster_id, body)
             if parts[3:] == ["jobs"]:
