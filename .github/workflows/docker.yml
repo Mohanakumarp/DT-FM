@@ -59,7 +59,12 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.target }}
           cache-to: type=gha,scope=${{ matrix.target }},mode=max
       - name: Validate Compose
-        run: docker compose --profile '*' config --quiet
+        run: |
+          docker compose --profile '*' config --quiet
+          docker compose -f compose.cluster.yaml config --quiet
+          docker compose -f compose.cluster.yaml -f compose.cluster.gpu.yaml config --quiet
+          docker compose -f compose.cluster.yaml -f compose.cluster.desktop.yaml config --quiet
+          docker compose -f compose.cluster.yaml -f compose.cluster.desktop.yaml -f compose.cluster.gpu.yaml config --quiet
       - name: Check architecture and Gloo
         run: |
           docker compose run --rm --no-deps train python -c "import platform, torch; assert platform.machine() == '${{ matrix.machine }}'; assert torch.distributed.is_gloo_available(); print(platform.machine(), torch.__version__)"

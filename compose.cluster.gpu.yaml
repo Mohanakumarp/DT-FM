@@ -1,0 +1,12 @@
+# Add this file only on hosts with working NVIDIA GPU access in Docker.
+# CPU and CUDA images must contain the same application and PyTorch release.
+services:
+  worker:
+    image: "${DTFM_WORKER_IMAGE:-suryanarayanaant/dtfm:cuda}"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

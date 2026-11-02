@@ -8,6 +8,10 @@ the image, so builds do not need datasets or a GPU.
 
 ## Quick start
 
+For dashboard-managed cluster workers, see [pairing and running in Docker](CLUSTER_DOCKER.md).
+It includes Linux and Docker Desktop networking, persistent identities, and
+commands using `suryanarayanaant/dtfm:latest` without a source checkout.
+
 Install Docker Engine with Compose v2 on Linux, or Docker Desktop using Linux
 containers on Windows/macOS.
 

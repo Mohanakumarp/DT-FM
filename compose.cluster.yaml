@@ -1,0 +1,22 @@
+name: dtfm-cluster
+
+# Linux hosts use their existing Tailscale interface. Docker Desktop workers
+# also load compose.cluster.desktop.yaml to share a Tailscale sidecar instead.
+services:
+  worker:
+    image: "${DTFM_WORKER_IMAGE:-suryanarayanaant/dtfm:latest}"
+    init: true
+    network_mode: host
+    shm_size: 1gb
+    entrypoint: [python, -m, cluster_control.worker]
+    command: [run, --state, /state/worker.json, --output, /state/artifacts, --interface, tailscale0]
+    environment:
+      HF_HOME: /cache/huggingface
+      USE_LIBUV: "0"
+    volumes:
+      - worker-state:/state
+      - model-cache:/cache
+
+volumes:
+  worker-state:
+  model-cache:

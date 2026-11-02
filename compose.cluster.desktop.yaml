@@ -1,0 +1,23 @@
+# Docker Desktop Linux containers need a reachable interface inside their VM.
+# All worker processes share this sidecar's Tailscale IP and dynamic Gloo ports.
+services:
+  tailscale:
+    image: tailscale/tailscale:stable
+    init: true
+    restart: unless-stopped
+    cap_add: [NET_ADMIN, NET_RAW]
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    entrypoint: [tailscaled]
+    command: [--state=/var/lib/tailscale/tailscaled.state, --socket=/var/run/tailscale/tailscaled.sock]
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+
+  worker:
+    network_mode: service:tailscale
+    depends_on:
+      tailscale:
+        condition: service_started
+
+volumes:
+  tailscale-state:
